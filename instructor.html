@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Modo instructor</title>
+<style>
+:root { --bg: #0b1020; --fg: #e8f0ff; --line: #2c3a55; --acc: #5ff6ff; }
+body { margin: 0; background: var(--bg); color: var(--fg); font: 16px system-ui, sans-serif; padding: 16px; }
+h1 { font-size: 1.3rem; margin: 0 0 .3rem; } p { color: #9fb0c8; margin: .2rem 0 .8rem; }
+.g { display: grid; grid-template-columns: repeat(2, 1fr); gap: .5rem; margin-bottom: 1rem; }
+button { background: #13203a; color: var(--fg); border: 1px solid var(--line); padding: .7rem; font: inherit; cursor: pointer; border-radius: 6px; }
+button:hover { border-color: var(--acc); } input { width: 100%; box-sizing: border-box; padding: .6rem; background: #0d1528; color: var(--fg); border: 1px solid var(--line); border-radius: 6px; font: inherit; }
+#log { font-size: .85rem; color: #9fb0c8; max-height: 160px; overflow: auto; }
+</style></head><body>
+<h1>🎛 Modo instructor</h1>
+<p>Controla las misiones de la academia abiertas en <b>este mismo equipo</b> (otra pestaña o ventana). Ideal para el proyector.</p>
+<h2>Emergencias</h2>
+<div class="g">
+  <button data-k="fuego">🔥 Incendio / frío / tóxico</button>
+  <button data-k="fuga">💨 Fuga / grieta / plaga</button>
+  <button data-k="amoniaco">☣ Gas / polvo</button>
+  <button data-t="pista">💡 Dar una pista</button>
+  <button data-t="pausa">⏸ Pausar</button>
+</div>
+<h2>Mensaje de radio (CAPCOM)</h2>
+<input id="msg" placeholder="Ej.: Estación, reporten su estado, cambio.">
+<p><button id="send">📻 Enviar</button></p>
+<div id="log"></div>
+<script>
+const ch = new BroadcastChannel('lfr-instructor'); const log = (t) => { document.getElementById('log').insertAdjacentHTML('afterbegin', `<div>${new Date().toLocaleTimeString()} · ${t}</div>`); };
+document.querySelectorAll('[data-k]').forEach((b) => (b.onclick = () => { ch.postMessage({ type: 'peligro', kind: b.dataset.k }); log(b.textContent); }));
+document.querySelectorAll('[data-t]').forEach((b) => (b.onclick = () => { ch.postMessage({ type: b.dataset.t }); log(b.textContent); }));
+const send = () => { const v = document.getElementById('msg').value.trim(); if (!v) return; ch.postMessage({ type: 'radio', text: v }); log('Radio: ' + v); document.getElementById('msg').value = ''; };
+document.getElementById('send').onclick = send; document.getElementById('msg').onkeydown = (e) => { if (e.key === 'Enter') send(); };
+</script></body></html>

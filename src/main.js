@@ -6,6 +6,7 @@ import { LOCS } from './locs.js';
 import * as G from './core.js';
 import { VILLAINS } from './villains.js';
 import * as M from './music.js';
+import * as Acad from './academia-ui.js';
 
 const TS = 16; let ZOOM = 2;
 const cv = document.getElementById('lienzo'); const cx = cv.getContext('2d');
@@ -18,7 +19,7 @@ const cam = { x: 0, y: 0 };
 
 // ---------- guardado (una ranura por destino) ----------
 const SKEY = (loc) => `lfr.${loc}`;
-function save() { if (!s || s.over) return; Meta.keepNotes(s); if (s.daily) return; try { localStorage.setItem(SKEY(s.loc), G.serialize(s)); } catch { /* sin almacenamiento */ } }
+function save() { if (!s || s.over || s.cadet) return; Meta.keepNotes(s); if (s.daily) return; try { localStorage.setItem(SKEY(s.loc), G.serialize(s)); } catch { /* sin almacenamiento */ } }
 function load(loc) { try { const raw = localStorage.getItem(SKEY(loc)); return raw ? G.revive(JSON.parse(raw)) : null; } catch { return null; } }
 const getDif = () => { try { return DIFS[localStorage.getItem('lfr.dif')] ? localStorage.getItem('lfr.dif') : 'normal'; } catch { return 'normal'; } };
 const setDif = (d) => { try { localStorage.setItem('lfr.dif', d); } catch { /* nada */ } };
@@ -403,6 +404,7 @@ function draw(t) {
   // susto: destello rojo al descubrir tu escondite
   if (scareT > 0) { scareT -= 1 / 60; R(cx, `rgba(160,0,0,${scareT})`, 0, 0, cv.width, cv.height); }
   escortOverlay(t);
+  if (s.cadet) { const cd = Acad.code(s); if (cd) { cx.textAlign = 'center'; R(cx, 'rgba(5,10,20,.92)', cv.width / 2 - 130, 64, 260, 64); R(cx, '#5ff6ff', cv.width / 2 - 130, 64, 260, 2); cx.font = '18px VT323'; cx.fillStyle = '#9fd4ff'; cx.fillText('CÓDIGO RECIBIDO', cv.width / 2, 80); cx.font = '38px VT323'; cx.fillStyle = '#5ff6ff'; cx.fillText(cd.split('').join(' '), cv.width / 2, 110); } }
   if (G.isOutside(s) && !p.inDuct) { cx.font = '20px VT323'; cx.fillStyle = p.o2 < 30 ? '#ff4b4b' : '#5ff6ff'; cx.fillText(`O₂ ${Math.ceil(p.o2)}%${G.has(s, 'traje') ? '' : ' · ¡SIN TRAJE!'}`, cv.width / 2, cv.height - 18); }
 }
 
@@ -513,8 +515,8 @@ function danger() {
 // Flecha al borde de la pantalla que apunta a donde te toca estar.
 function arrowToGoal(t) {
   if (s.final) return;
-  const b = G.block(s); if (!b.room || G.playerRoom(s) === b.room) return;
-  const r = s.L.rooms.find((x) => x.id === b.room); const gx = (r.x + r.w / 2) * TS - cam.x, gy = (r.y + r.h / 2) * TS - cam.y;
+  const goal = s.cadet ? Acad.target(s) : G.block(s).room; if (!goal || (s.ps ?? [s.p]).some((q) => G.roomIdAt(s, q.x, q.y) === goal)) return;
+  const r = s.L.rooms.find((x) => x.id === goal); const gx = (r.x + r.w / 2) * TS - cam.x, gy = (r.y + r.h / 2) * TS - cam.y;
   if (gx > 0 && gx < VW && gy > 0 && gy < VH) return;
   const a = Math.atan2(gy - VH / 2, gx - VW / 2); const ex = cv.width / 2 + Math.cos(a) * (cv.width / 2 - 40), ey = cv.height / 2 + Math.sin(a) * (cv.height / 2 - 40);
   cx.save(); cx.translate(ex, ey); cx.rotate(a); cx.fillStyle = Math.floor(t / 300) % 2 ? '#ffc23d' : '#ffe08a';
@@ -548,8 +550,10 @@ function hud() {
   $('dia').textContent = s.mode === 'noche' ? `${L.icon} ${s.daily ? 'RETO' : 'UNA NOCHE'} · ${G.dif(s).name.toUpperCase()} · ${Meta.fmtTime(s.t)}` : `${L.icon} DÍA ${s.day}/${G.DAYS} · ${G.dif(s).name.toUpperCase()}`;
   $('reloj').textContent = G.clock(s.min);
   const late = b.room && s.checked && G.playerRoom(s) !== b.room;
-  $('bloque').textContent = b.room ? `${b.name.toUpperCase()} → ${G.roomName(s, b.room)}` : b.name.toUpperCase();
-  $('bloque').className = late ? 'tarde' : '';
+  $('bloque').textContent = s.cadet ? Acad.objective(s) : b.room ? `${b.name.toUpperCase()} → ${G.roomName(s, b.room)}` : b.name.toUpperCase();
+  $('bloque').className = s.cadet ? 'objetivo' : late ? 'tarde' : '';
+  document.body.classList.toggle('modo-cadete', !!s.cadet);
+  if (s.cadet) { $('dia').textContent = `🎖 ACADEMIA · ${L.name.toUpperCase()}`; $('reloj').textContent = `${Math.floor(s.cadet.t / 60)}:${String(Math.floor(s.cadet.t % 60)).padStart(2, '0')}`; }
   $('t-alerta').textContent = `${L.ai} · ALERTA`;
   $('m-alerta').style.width = `${s.iaOn ? s.alert : 0}%`; $('m-alerta').parentElement.classList.toggle('alta', s.alert > 70);
   $('m-integ').style.width = `${Math.max(0, s.integ)}%`;
@@ -591,8 +595,8 @@ function dock() {
   const cb = p.inv.filter(G.isContraband).length;
   const html = `<div class="dk-col dk-bolsa"><h3>🎒 MOCHILA <small>${p.inv.length}/${cap}</small>${cb >= 2 ? '<em class="dk-ojo">⚠ ' + cb + ' herramientas: riesgo en el pase de lista</em>' : ''}</h3>${s.ps ? slots : `<div class="dk-items">${slots}</div>`}
     <p class="dk-esc">Escondite: ${s.stash.length}/${G.STASH_MAX}${s.stash.length ? ' · ' + s.stash.slice(0, 6).map((x) => icon(x)).join('') : ''}</p></div>
-    <div class="dk-col dk-plan"><h3>PLAN <small>${got}/${G.PLAN_IDS.length}</small></h3><div class="dk-prog"><i style="width:${got / G.PLAN_IDS.length * 100}%"></i></div><ul>${plan}</ul></div>
-    <div class="dk-col dk-rutas"><h3>RUTAS</h3><ul>${rts}</ul></div>`;
+    ${s.cadet ? Acad.stepsHtml(s) : `<div class="dk-col dk-plan"><h3>PLAN <small>${got}/${G.PLAN_IDS.length}</small></h3><div class="dk-prog"><i style="width:${got / G.PLAN_IDS.length * 100}%"></i></div><ul>${plan}</ul></div>
+    <div class="dk-col dk-rutas"><h3>RUTAS</h3><ul>${rts}</ul></div>`}`;
   const el = $('dock');
   if (el.dataset.h !== html) {
     el.innerHTML = html; el.dataset.h = html;
@@ -621,6 +625,7 @@ function open(html, cls = '') { $('ventana').className = 'ventana ' + cls; $('ve
 function close() { $('modal').hidden = true; menu = null; }
 
 function titleScreen() {
+  PNAME[0] = 'Comandante'; PCOL[0] = '#3d7bff';
   menu = 'titulo'; const mt = Meta.load(); const mode = getOpt('modo', 'campana'); let perk = getOpt('perk', 'novato'); if (!Meta.isUnlocked(mt, perk)) perk = 'novato';
   if (!Meta.difUnlocked(mt, getDif())) setDif('normal');
   const dd = Meta.daily(); const dy = { done: mt.daily[dd.key]?.best ?? null };
@@ -633,6 +638,7 @@ function titleScreen() {
     <p>Cumple la rutina, esquiva a la IA y prepara en secreto tu regreso a la Tierra.</p>
     <p class="puntos">⭐ ${mt.pts} PUNTOS · racha ${mt.streak} (mejor ${mt.bestStreak}) · medallas ${Object.keys(mt.medals).length}/${Object.keys(Meta.MEDALS).length}</p>
     <div class="dificultad"><span class="lbl">MODO</span>${[['campana', 'CAMPAÑA · 10 días'], ['noche', 'UNA NOCHE · 7 min']].map(([k, n]) => `<button data-modo="${k}" class="${k === mode ? 'on' : ''}">${n}</button>`).join('')}</div>
+    <button id="t-academia" class="academia-btn">🎖 ACADEMIA DE CADETES<small>Entrenamiento para cadetes junior: misiones, lecciones, rangos y certificados</small></button>
     <div class="dificultad"><span class="lbl">JUGADORES</span>${[['1', '1 JUGADOR'], ['2', '2 · COOPERATIVO (mismo teclado)']].map(([k, n]) => `<button data-jug="${k}" class="${k === getOpt('jug', '1') ? 'on' : ''}">${n}</button>`).join('')}${getOpt('jug', '1') === '2' ? '<small>J1: WASD · E usar · F esconder · Shift izq. agachar · I mochila · C fabricar · T lanzar · Q inhibir — J2: flechas · Enter usar · Ctrl der. esconder · Shift der. agachar · . mochila · - fabricar · , lanzar · Ñ inhibir · ´ soltar</small>' : ''}</div>
     <div class="dificultad"><span class="lbl">NIVEL</span>${Object.entries(DIFS).map(([k, d]) => Meta.difUnlocked(mt, k) ? `<button data-dif="${k}" class="${k === getDif() ? 'on' : ''}" title="${d.desc}">${d.name.toUpperCase()}</button>` : `<button data-comprar="dif:${k}" class="bloq" title="${d.desc}">🔒 ${d.name.toUpperCase()} · ${d.locked}</button>`).join('')}<small>${DIFS[getDif()].desc}</small></div>
     <div class="dificultad"><span class="lbl">PERSONAJE</span>${Object.entries(PERKS).map(([k, d]) => Meta.isUnlocked(mt, k) ? `<button data-perk="${k}" class="${k === perk ? 'on' : ''}" title="${d.desc}">${d.name.toUpperCase()}</button>` : `<button data-comprar="${k}" class="bloq" title="${d.desc}">🔒 ${d.name.toUpperCase()} · ${d.cost}</button>`).join('')}<small>${PERKS[perk].desc}</small></div>
@@ -649,6 +655,7 @@ function titleScreen() {
   $('ventana').querySelectorAll('[data-dif]').forEach((b) => (b.onclick = () => { setDif(b.dataset.dif); titleScreen(); }));
   $('ventana').querySelectorAll('[data-cont]').forEach((b) => (b.onclick = () => { M.start(); s = load(b.dataset.cont); base = null; close(); }));
   $('t-ayuda').onclick = () => help(titleScreen);
+  $('t-academia').onclick = () => { M.start(); Acad.hub(); };
 }
 
 function medalsScreen() {
@@ -860,7 +867,7 @@ addEventListener('keydown', (e) => {
   if (e.repeat) return;
   keys.add(k); codes.add(e.code);
   if (s?.ps && P2KEYS[e.code]) { e.preventDefault(); return act(P2KEYS[e.code], 1); }
-  if (k === 'escape' && menu && !['titulo', 'fin', 'protocolo', 'intro', 'codigo', 'cables', 'respira'].includes(menu)) { if (menu === 'escondite') s.pending = null; close(); return; }
+  if (k === 'escape' && menu && !['titulo', 'fin', 'protocolo', 'intro', 'codigo', 'cables', 'respira', 'academia', 'cadete'].includes(menu)) { if (menu === 'escondite') s.pending = null; close(); return; }
   if (['e', 'q', 'c', 'p', 'f', 't', 'g', 'b', 'i', 'm', 'escape'].includes(k)) act(k, 0);
 });
 addEventListener('keyup', (e) => { keys.delete(e.key.toLowerCase()); codes.delete(e.code); });
@@ -903,20 +910,24 @@ function frame(t) {
     const inp = input();
     const inp2 = s.ps ? input2() : null;
     if (!menu) G.update(s, dt, inp, inp2);
+    if (s.cadet && !menu) Acad.frame(s, dt);
     if (!menu && s.pending?.kind === 'respira') breathGame();
     while (s.sfx?.length) { const k = s.sfx.shift(); M.sting(k); }
-    M.set(s.loc, musicLevel(), G.isNight(s));
-    if (!menu && !s.p.sleep) M.heartbeat(Math.max(danger(), s.final ? 0.6 : 0));
+    M.set(s.cadet ? 'mision' : s.loc, s.cadet ? 0 : musicLevel(), s.cadet ? false : G.isNight(s));
+    if (!menu && !s.p.sleep && !s.cadet) M.heartbeat(Math.max(danger(), s.final ? 0.6 : 0));
     if (s.msg && s.msg !== lastMsg) { lastMsg = s.msg; beep(s.msg.kind === 'bad' ? 200 : s.msg.kind === 'ok' ? 880 : 520, 0.15, s.msg.kind === 'bad' ? 'sawtooth' : 'square'); }
     if (!menu && (inp.dx || inp.dy || inp2?.dx || inp2?.dy) && (stepT -= dt) <= 0) { stepT = 0.28; beep(G.isOutside(s) ? 70 : 110, 0.03, 'triangle', 0.02); }
     if (!menu && (s.final || s.hazards.some((h) => h.def.type === 'front' && h.phase === 'aviso')) && Math.floor(t / 500) !== Math.floor((t - dt * 1000) / 500)) beep(660, 0.12, 'sawtooth', 0.025);
     draw(t);
     hudT -= dt; if (hudT <= 0) { hud(); hudT = 0.12; }
     saveT -= dt; if (saveT <= 0) { save(); saveT = 10; }
-    if (s.over && !s.over.shown) { s.over.shown = true; hud(); endScreen(); }
+    if (s?.over && !s.over.shown) { s.over.shown = true; hud(); if (s.cadet) Acad.debrief(s); else endScreen(); }
   }
   requestAnimationFrame(frame);
 }
 addEventListener('beforeunload', save);
+Acad.init({ open, close, setMenu: (v) => { menu = v; }, getS: () => s, setS: (x) => { s = x; base = null; menu = null; }, titleScreen, beep, M, PCOL, PNAME,
+  toast: (txt) => { if (s) G.flash(s, txt, 'info'); }, pause: () => { if (!menu) act('p'); } });
+if ('serviceWorker' in navigator && location.protocol.startsWith('http')) navigator.serviceWorker.register('sw.js').catch(() => {});
 document.fonts?.load('16px VT323').finally(() => { titleScreen(); requestAnimationFrame(frame); });
-window.lfr = { get s() { return s; }, G }; // para depurar y para los bots de prueba
+window.lfr = { get s() { return s; }, get menu() { return menu; }, G, draw, hud, dock }; // para depurar y para los bots de prueba // para depurar y para los bots de prueba

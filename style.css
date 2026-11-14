@@ -171,3 +171,66 @@ kbd { border: 1px solid var(--line); padding: 0 .3rem; color: var(--amber); }
 .dk-jug { margin-bottom: .35rem; } .dk-jug > b { display: inline-block; font-weight: normal; color: var(--pc); border-left: 3px solid var(--pc); padding-left: .3rem; margin-bottom: .2rem; }
 .st-k b i { font-style: normal; margin-left: .25rem; } .st .barrita + .barrita { margin-top: 2px; }
 .st .barrita { grid-column: 2; } .st-ic { grid-row: 1 / span 3; }
+
+/* ===== Academia de cadetes ===== */
+.academia-btn { display: flex; flex-direction: column; align-items: center; gap: .2rem; width: 100%; margin: .6rem 0; padding: .8rem; font-size: 1.5rem; color: #ffd23d; border: 2px solid #ffd23d; background: linear-gradient(90deg, rgba(255,210,61,.08), rgba(95,246,255,.08)); box-shadow: 0 0 18px rgba(255,210,61,.18); animation: ac-brillo 2.4s ease-in-out infinite; }
+.academia-btn small { font-size: .9rem; color: var(--dim); }
+@keyframes ac-brillo { 50% { box-shadow: 0 0 28px rgba(255,210,61,.38); } }
+.acad .dim, .brief .dim, .debrief .dim { color: var(--dim); }
+.acad-top { display: grid; grid-template-columns: auto 1fr auto; gap: 1rem; align-items: center; border-bottom: 1px solid var(--line); padding-bottom: .6rem; }
+.acad-who { display: flex; gap: .8rem; align-items: center; } .acad-nick { font-size: 1.6rem; color: #fff; } .acad-nick small { color: var(--dim); font-size: 1rem; }
+.acad-rank b { color: #ffd23d; font-weight: normal; }
+.acad-title { font-size: 1.5rem; letter-spacing: .15em; color: #ffd23d; text-align: right; }
+.acad-xp { height: 8px; background: #0a0e17; border: 1px solid var(--line); margin: .25rem 0; min-width: 120px; } .acad-xp i { display: block; height: 100%; background: linear-gradient(90deg, #5fb6ff, #5ff6ff); box-shadow: 0 0 6px #5ff6ff; transition: width .6s; }
+.acad-tabs { display: flex; gap: .3rem; flex-wrap: wrap; margin: .6rem 0; } .acad-tabs .mini { margin-left: auto; }
+.acad-tabs button.on, .acad .fila button.on, .acad-form .color.on { border-color: #ffd23d; color: #ffd23d; }
+.acad-form { display: grid; gap: .6rem; max-width: 420px; } .acad-form input, .ventana input:not([type=range]):not([type=file]) { background: #0a0e17; color: var(--fg); border: 1px solid var(--line); padding: .45rem .6rem; font: inherit; font-size: 1.2rem; }
+.acad-form label { display: grid; gap: .2rem; } .color { width: 34px; height: 34px; border: 2px solid transparent; }
+.fase { border: 1px solid var(--line); padding: .5rem .7rem; margin-bottom: .6rem; background: rgba(255,255,255,.02); } .fase.bloq { opacity: .5; }
+.fase h3 small { color: var(--dim); font-size: .9rem; }
+.misiones { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: .5rem; }
+.mision { display: flex; flex-direction: column; align-items: flex-start; gap: .15rem; text-align: left; padding: .5rem .6rem; transition: transform .15s; }
+.mision:not([disabled]):hover { transform: translateY(-3px); border-color: #ffd23d; }
+.mision small { color: var(--dim); font-size: .85rem; } .mision.ok { border-color: #4dff88; } .mision.ok b { color: #4dff88; } .mision.bloq { opacity: .45; } .mision.examen { border-style: dashed; }
+.evals { align-items: center; } .destaca { border-color: #ffd23d !important; color: #ffd23d; animation: ac-brillo 2s infinite; }
+.skills { display: grid; gap: .3rem; } .skill { display: grid; grid-template-columns: 220px 1fr 40px; gap: .5rem; align-items: center; }
+.rangos { display: flex; gap: .6rem; flex-wrap: wrap; } .rango { text-align: center; opacity: .35; } .rango.si { opacity: 1; } .rango small { display: block; font-size: .8rem; }
+.medallas { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: .4rem; }
+.medalla { border: 1px solid var(--line); padding: .35rem .5rem; opacity: .35; filter: grayscale(1); } .medalla.si { opacity: 1; filter: none; border-color: #ffd23d; }
+.medalla b { display: block; font-weight: normal; color: #ffd23d; } .medalla small { color: var(--dim); font-size: .8rem; } .medalla.nueva { animation: dk-entra .6s cubic-bezier(.2,1.4,.4,1) both; }
+.tarjetas { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: .4rem; }
+.tarjeta { border: 1px solid var(--line); background: #0d1320; padding: .4rem .6rem; } .tarjeta b { color: #5ff6ff; font-weight: normal; font-size: 1.15rem; } .tarjeta small { display: block; color: var(--dim); } .tarjeta p { margin: .2rem 0 0; font-size: .95rem; }
+.fonetico { display: flex; flex-wrap: wrap; gap: .3rem .9rem; } .fonetico b { color: #ffd23d; }
+.tabla { overflow-x: auto; } .tabla table { border-collapse: collapse; width: 100%; font-size: .95rem; } .tabla th, .tabla td { border: 1px solid var(--line); padding: .25rem .45rem; text-align: left; } .tabla th { color: #ffd23d; font-weight: normal; }
+label.boton { border: 1px solid var(--line); padding: .3rem .7rem; cursor: pointer; background: var(--panel2); }
+.brief .leccion { border-left: 3px solid #5ff6ff; padding: .4rem .8rem; background: rgba(95,246,255,.05); font-size: 1.2rem; min-height: 6rem; }
+.pasos li { margin: .15rem 0; } .pasos em { color: #ffd23d; font-style: normal; }
+.roles { display: grid; grid-template-columns: 1fr 1fr; gap: .5rem; margin: .4rem 0; } .roles > div { border-left: 4px solid var(--pc); padding: .3rem .6rem; background: rgba(255,255,255,.03); } .roles b { color: var(--pc); font-weight: normal; }
+.jtag { display: inline-block; padding: 0 .4rem; border: 1px solid var(--pc); color: var(--pc); margin-right: .3rem; }
+.pregunta { font-size: 1.3rem; } .opciones { display: grid; gap: .4rem; margin: .5rem 0; } .opciones button { text-align: left; padding: .5rem .7rem; font-size: 1.1rem; }
+.opciones button.mal { border-color: var(--red); color: var(--red); animation: ac-sacude .3s; }
+@keyframes ac-sacude { 25% { transform: translateX(-5px); } 75% { transform: translateX(5px); } }
+.checklist { list-style: none; padding: 0; display: grid; gap: .15rem; } .checklist li { color: var(--dim); } .checklist li.ok { color: #4dff88; animation: dk-entra .3s both; }
+.porque { border-left: 3px solid #ffd23d; padding: .3rem .7rem; background: rgba(255,210,61,.06); }
+.voz { margin-left: .4rem; }
+.recursos { display: grid; gap: .5rem; } .recursos label { display: grid; grid-template-columns: 1fr 2fr 40px; gap: .5rem; align-items: center; }
+.okc { color: #4dff88; } .malc { color: var(--red); }
+.estrellas { display: grid; grid-template-columns: repeat(6, 38px); gap: 2px; margin: .4rem 0; } .estrellas > * { height: 34px; display: grid; place-items: center; } .estrellas span { background: #050816; border: 1px solid #1c2640; color: #ffd23d; font-size: 1.4rem; } .estrellas b { color: var(--dim); font-weight: normal; }
+.codigo-grande { font-size: 2.4rem; letter-spacing: .3em; color: #5ff6ff; }
+.grande-num { font-size: 3rem; color: #ffd23d; margin: .2rem 0; }
+.nota-final { font-size: 4rem; line-height: 1; } .nota-final small { font-size: 1.4rem; color: var(--dim); } .nota-final.ok { color: #4dff88; } .nota-final.mal { color: var(--red); }
+.criterios { display: grid; gap: .3rem; margin: .5rem 0; } .criterios > div { display: grid; grid-template-columns: 140px 1fr 40px; gap: .5rem; align-items: center; }
+.comentarios li { border-left: 2px solid #ffd23d; padding-left: .5rem; margin: .25rem 0; }
+#bloque.objetivo { color: #ffd23d; }
+.dk-mision li.actual { color: #ffd23d; } .dk-mision li.ok { color: #4dff88; opacity: 1; }
+@media (max-width: 700px) { .acad-top { grid-template-columns: 1fr; } .acad-title { text-align: left; } .skill, .criterios > div { grid-template-columns: 1fr 1fr 40px; } .roles { grid-template-columns: 1fr; } }
+
+/* Accesibilidad */
+html.letra-grande { font-size: 120%; } html.letra-grande .ventana { max-width: min(1300px, 98vw); }
+html.daltonico { --red: #ff9f1a; } html.daltonico .okc, html.daltonico .mision.ok b, html.daltonico .checklist li.ok, html.daltonico .dk-mision li.ok, html.daltonico .nota-final.ok { color: #4da3ff; } html.daltonico .mision.ok { border-color: #4da3ff; }
+
+.comentarios { list-style: none; padding: 0; }
+body.modo-cadete .hb-ia, body.modo-cadete .amenazas, body.modo-cadete .panel .caja:has(#crew), body.modo-cadete #btn-usar { display: none; }
+body.modo-cadete .hudbar { grid-template-columns: minmax(0, 1fr) 150px; }
+.lista { list-style: none; padding: 0; display: grid; gap: .15rem; } .lista li { border-left: 2px solid var(--line); padding-left: .5rem; }
+.estrellas b { font-size: 1.1rem; line-height: 34px; }

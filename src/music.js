@@ -3,6 +3,7 @@
 const THEMES = {
   estacion: { bpm: 84, root: 45, scale: [0, 2, 3, 5, 7, 8, 10], prog: [0, 5, 3, 4], lead: 'triangle', pad: 'sawtooth' },   // La menor, frío y metálico
   luna: { bpm: 66, root: 50, scale: [0, 2, 3, 5, 7, 9, 10], prog: [0, 3, 5, 4], lead: 'sine', pad: 'triangle' },             // Re dórico, vacío y lento
+  mision: { bpm: 100, root: 48, scale: [0, 2, 4, 5, 7, 9, 11], prog: [0, 4, 5, 3], lead: 'triangle', pad: 'triangle' },     // Do mayor: control de misión, con ánimo
   marte: { bpm: 96, root: 40, scale: [0, 1, 3, 5, 7, 8, 10], prog: [0, 1, 5, 4], lead: 'square', pad: 'sawtooth' },          // Mi frigio, áspero
 };
 let ac = null, master = null, musBus = null, lp = null, delay = null, enabled = true;
