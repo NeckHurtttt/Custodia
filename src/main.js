@@ -499,7 +499,7 @@ const ICON = {
 function icon(id) { const [c, d] = ICON[id] ?? ['#fff', 'M4 4h8v8H4z']; return `<svg viewBox="0 0 16 16" width="22" height="22" shape-rendering="crispEdges"><path d="${d}" fill="${c}" stroke="${c}" stroke-width=".5"/></svg>`; }
 
 // ---------- ventanas ----------
-function open(html) { $('ventana').innerHTML = html; $('modal').hidden = false; }
+function open(html, cls = '') { $('ventana').className = 'ventana ' + cls; $('ventana').innerHTML = html; $('modal').hidden = false; }
 function close() { $('modal').hidden = true; menu = null; }
 
 function titleScreen() {
@@ -604,14 +604,14 @@ function bagMenu() {
   menu = 'mochila';
   const it = (id, i) => { const d = ITEMS[id]; return `<div class="it ${d.plan ? 'plan' : d.tool ? 'tool' : ''}">${icon(id)}<span>${G.itemName(s, id)}<small>${d.info ?? (d.tool ? 'Herramienta (te la quitan si te pillan).' : 'Pieza para fabricar. Se puede lanzar (T) para hacer ruido.')}</small>${i != null && !(id in s.L.plan) ? `<button class="soltar" data-soltar="${i}">SOLTAR</button>` : ''}</span></div>`; };
   const plan = G.PLAN_IDS.map((id) => `<li class="${G.has(s, id) ? 'ok' : ''}">${s.L.plan[id].name}${G.has(s, id) ? '' : ' — ' + s.L.plan[id].hint}</li>`).join('');
-  open(`<h2>MOCHILA (${s.p.inv.length}/${G.capacity(s)})</h2>
+  open(`<div class="bolsa"><section><h2>MOCHILA (${s.p.inv.length}/${G.capacity(s)})</h2>
     <div class="mochila">${s.p.inv.map((x, i) => it(x, i)).join('') || '<p style="color:var(--dim)">(vacía)</p>'}</div>
     <h3>EN TU ESCONDITE (${s.stash.length}/${G.STASH_MAX})</h3><div class="mochila">${s.stash.map((x) => it(x)).join('') || '<p style="color:var(--dim)">(vacío)</p>'}</div>
-    <h3>RUTAS DE ESCAPE</h3><ul class="plan">${G.routes(s).map((r) => `<li class="${r.ok ? 'ok' : ''}"><b>${r.name}</b> — ${r.desc}</li>`).join('')}</ul>
-    <h3>PLAN DE REGRESO</h3><ul class="plan">${plan}</ul>
-    ${s.notes.length ? `<h3>NOTAS ENCONTRADAS EN ESTA PARTIDA</h3>${s.notes.map((i) => `<details class="nota"><summary>📄 ${NOTES[s.loc][i][0]}</summary><p>${NOTES[s.loc][i][1]}</p></details>`).join('')}` : ''}<p style="color:var(--dim)">Notas de ${s.L.name}: ${G.notesKnown(s)}/${NOTES[s.loc].length} <button class="mini" id="archivo">VER ARCHIVO</button></p>
-    <p style="color:var(--dim)">Herramientas encima: ${s.p.inv.filter(G.isContraband).length} · con 2 o más te las quitan en el pase de lista.</p>
-    <div class="fila"><button id="cerrar">CERRAR [I]</button></div>`);
+    <p style="color:var(--dim)">Herramientas encima: ${s.p.inv.filter(G.isContraband).length} · con 2 o más te las quitan en el pase de lista.</p></section>
+    <section><h3>PLAN DE REGRESO</h3><ul class="plan">${plan}</ul></section>
+    <section><h3>RUTAS DE ESCAPE</h3><ul class="plan">${G.routes(s).map((r) => `<li class="${r.ok ? 'ok' : ''}"><b>${r.name}</b> — ${r.desc}</li>`).join('')}</ul>
+    ${s.notes.length ? `<h3>NOTAS ENCONTRADAS EN ESTA PARTIDA</h3>${s.notes.map((i) => `<details class="nota"><summary>📄 ${NOTES[s.loc][i][0]}</summary><p>${NOTES[s.loc][i][1]}</p></details>`).join('')}` : ''}<p style="color:var(--dim)">Notas de ${s.L.name}: ${G.notesKnown(s)}/${NOTES[s.loc].length} <button class="mini" id="archivo">VER ARCHIVO</button></p></section></div>
+    <div class="fila"><button id="cerrar">CERRAR [I]</button></div>`, 'ancha');
   $('cerrar').onclick = close;
   $('archivo').onclick = () => archiveScreen(bagMenu);
   $('ventana').querySelectorAll('[data-soltar]').forEach((b) => (b.onclick = () => { G.dropItem(s, +b.dataset.soltar); bagMenu(); }));
