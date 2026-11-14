@@ -129,3 +129,12 @@ test('guardar y cargar conserva la partida', () => {
 test('10 días sin escapar = derrota', () => {
   const s = fresh(); s.drones = []; s.day = 10; s.min = 1430; G.update(s, 5); assert.equal(s.over?.won, false);
 });
+
+test('soltar y recoger cosas; los drones confiscan herramientas tiradas', () => {
+  const s = fresh(); s.drones = [];
+  s.p.inv = ['cinta', 'tornillos', 'destornillador']; s.p.dir = 0;
+  assert.ok(G.dropItem(s, 0)); assert.equal(s.floor.length, 1); assert.deepEqual(s.p.inv, ['tornillos', 'destornillador']);
+  G.interact(s); assert.equal(s.floor.length, 0); assert.ok(s.p.inv.includes('cinta'));
+  s.p.inv.push('codigo'); assert.equal(G.dropItem(s, s.p.inv.length - 1), false);
+  const r = G.revive(JSON.parse(G.serialize(s))); assert.deepEqual(r.floor, []);
+});

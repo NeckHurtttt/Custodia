@@ -115,7 +115,7 @@ export function newGame(loc = 'estacion', seed = Date.now() & 0x7fffffff, difKey
     p: { x: 3.5, y: 3.5, dir: 0, inDuct: false, hidden: null, crouch: false, noisy: false, dusty: 0, sleep: false, salud: 100, energia: 90, fuerza: 5, conoc: 5, o2: 100, inv: ['cinta', 'tornillos'], hit: 0, walk: 0 },
     stash: [], alert: 0, integ: 100, iaOn: true, frags: [false, false, false], grates: L.grates.map(() => false),
     objects: L.objects.map((o) => ({ ...o, loot: [], used: false })),
-    vil: null, shake: 0, sfx: [],
+    vil: null, shake: 0, sfx: [], floor: [],
     drones: [], hazards: [], crew: [], log: [], block: -1, blockStart: 0, checked: false, ate: false, worked: 0, illegal: 0,
     action: null, pending: null, final: null, over: null, msg: null, events: [], noise: null, stats: { caught: 0, solved: 0, favors: 0 },
   };
@@ -130,7 +130,7 @@ export function newGame(loc = 'estacion', seed = Date.now() & 0x7fffffff, difKey
 export function revive(o) {
   o.L = LOCS[o.loc]; const map = buildMap(o.L);
   (o.doorsOpen ?? []).forEach((v, i) => { if (map.doors[i]) map.doors[i].open = v; }); delete o.doorsOpen;
-  o.map = map; o.pending = null; o.action = null;
+  o.map = map; o.pending = null; o.action = null; o.floor ??= [];
   for (const h of o.hazards) h.def = HAZARDS[h.kind];
   (o.doorsLock ?? []).forEach((v, i) => { if (map.doors[i]) map.doors[i].lock = v; }); delete o.doorsLock;
   return o;
@@ -165,7 +165,7 @@ function newWants(s) { for (const c of s.crew) { c.want = pickWeighted(s, LOOT);
 export const capacity = (s) => 5 + Math.floor(s.p.fuerza / 20);
 export const has = (s, id) => s.p.inv.includes(id);
 export const isContraband = (id) => !!ITEMS[id]?.tool;
-export function give(s, id) { if (s.p.inv.length >= capacity(s)) { flash(s, `Llevas las manos llenas: no puedes tomar ${itemName(s, id)}. Deja cosas en tu escondite.`, 'warn'); return false; } s.p.inv.push(id); return true; }
+export function give(s, id) { if (s.p.inv.length >= capacity(s)) { flash(s, `Llevas las manos llenas: no puedes tomar ${itemName(s, id)}. Suelta algo con G (o SOLTAR en la mochila) o déjalo en tu escondite.`, 'warn'); return false; } s.p.inv.push(id); return true; }
 export function take(s, id) { const i = s.p.inv.indexOf(id); if (i >= 0) s.p.inv.splice(i, 1); return i >= 0; }
 export const block = (s) => s.L.schedule.find((b) => s.min >= b.from && s.min < b.to) ?? s.L.schedule[0];
 export const isNight = (s) => s.min < 360 || s.min >= 1320;
@@ -326,6 +326,10 @@ function updateDrones(s, dt) {
       d.mode = 'patrulla'; d.path = null;
     }
   }
+  // herramientas tiradas a la vista: las confiscan
+  for (const d of s.drones) { if (!s.iaOn || d.stun > 0) continue;
+    const f = s.floor.find((f) => isContraband(f.id) && Math.hypot(f.x - d.x, f.y - d.y) < 4 && los(s, d.x, d.y, f.x, f.y));
+    if (f) { s.floor.splice(s.floor.indexOf(f), 1); raise(s, 4, `Encontré ${itemName(s, f.id)} tirado en ${roomName(s, roomIdAt(s, f.x, f.y))}. Confiscado.`); } }
   if (s.noise && (s.noise.t -= dt) <= 0) s.noise = null;
 }
 /** Alguien te descubrió en un escondite y aguantaste (o no) la respiración. */
@@ -357,6 +361,13 @@ export function throwItem(s) {
   const [it] = p.inv.splice(i, 1);
   s.noise = { x, y, t: 6 }; s.thrown = { x0: p.x, y0: p.y, x, y, t: 0.5 };
   say(s, `Lanzaste ${ITEMS[it].name}: ¡CLANG! La vigilancia irá a ver.`, 'info');
+}
+/** Soltar una cosa en el suelo (para hacer espacio). Las herramientas tiradas las pueden encontrar los vigilantes. */
+export function dropItem(s, i = s.p.inv.length - 1) {
+  const p = s.p; if (s.over || p.hidden || p.inDuct || !p.inv[i]) return false;
+  if (p.inv[i] in (s.L.plan ?? {})) { flash(s, 'Eso es parte del plan de regreso: no lo sueltes, guárdalo en tu escondite.', 'warn'); return false; }
+  const [it] = p.inv.splice(i, 1); s.floor.push({ id: it, x: p.x + Math.cos(p.dir) * 0.3, y: p.y + Math.sin(p.dir) * 0.3 });
+  say(s, `Soltaste ${itemName(s, it)} en el suelo.${isContraband(it) ? ' Ojo: si un vigilante ve una herramienta tirada, la confisca.' : ''}`, 'info'); return true;
 }
 export const nearest = (arr, x, y) => arr.slice().sort((a, b) => Math.hypot(a.x - x, a.y - y) - Math.hypot(b.x - x, b.y - y))[0];
 
@@ -547,6 +558,7 @@ export function nearby(s) {
   }
   for (const c of s.crew) { const d = Math.hypot(c.x - p.x, c.y - p.y); if (d < 1.1) out.push({ kind: 'crew', c, d: d - 0.3 }); }
   out.push(...V.nearbyVillains(s));
+  s.floor.forEach((f) => { const d = Math.hypot(f.x - p.x, f.y - p.y); if (d < 1) out.push({ kind: 'suelo', f, d: d - 0.6 }); });
   s.objects.forEach((o) => { const d = Math.hypot(o.x + 0.5 - p.x, o.y + 0.5 - p.y); if (d < 1.3) out.push({ kind: 'obj', o, d }); });
   s.L.grates.forEach(([x, y], i) => { const d = Math.hypot(x + 0.5 - p.x, y + 0.5 - p.y); if (d < 0.9) out.push({ kind: 'rejilla', i, d: d + 0.05 }); });
   for (const door of s.map.doors) { const d = Math.min(...door.tiles.map(([x, y]) => Math.hypot(x + 0.5 - p.x, y + 0.5 - p.y))); if (d < 1.4) out.push({ kind: 'puerta', door, d: d + 0.3 }); }
@@ -556,6 +568,7 @@ export function nearby(s) {
 const OBJ_LABEL = { cama: 'Dormir', escondite: 'Escondite', cajon: 'Revisar cajón', mesa: 'Comer', cinta: 'Hacer ejercicio', estudio: 'Estudiar', registro: 'Hackear registro', capcom: 'Radio con la Tierra', nucleo: 'Núcleo de la IA', casillero: 'Esconderse (F)' };
 export function label(s, n) {
   if (!n) return '';
+  if (n.kind === 'suelo') return `Recoger ${itemName(s, n.f.id)}`;
   if (n.kind === 'obj') return s.L.labels[n.o.t] ?? OBJ_LABEL[n.o.t];
   if (n.kind === 'crew') return n.c.want ? `Hablar con ${n.c.name}` : `Pedir a ${n.c.name} que distraiga`;
   if (n.kind === 'vil') return V.label(s, n);
@@ -582,6 +595,7 @@ export function interact(s) {
     return say(s, p.inDuct ? 'Entraste al conducto: aquí no te ven.' : 'Saliste del conducto.', 'info');
   }
   if (n.kind === 'peligro') return fixHazard(s, n.h);
+  if (n.kind === 'suelo') { if (give(s, n.f.id)) { s.floor.splice(s.floor.indexOf(n.f), 1); say(s, `Recogiste ${itemName(s, n.f.id)}.`, 'ok'); } return; }
   const o = n.o; const b = block(s);
   switch (o.t) {
     case 'cama':
@@ -633,7 +647,7 @@ function finishAction(s, a) {
   if (a.kind === 'cajon') {
     if (!o.loot.length) return say(s, 'Cajón vacío. Se vuelve a llenar cada mañana.', 'info');
     const got = []; while (o.loot.length && p.inv.length < capacity(s)) { const it = o.loot.shift(); p.inv.push(it); got.push(ITEMS[it].name); }
-    if (got.length) say(s, 'Encontraste: ' + got.join(', ') + '.', 'ok'); else flash(s, 'Llevas las manos llenas.', 'warn');
+    if (got.length) say(s, 'Encontraste: ' + got.join(', ') + '.', 'ok'); else flash(s, 'Llevas las manos llenas. Suelta algo con G.', 'warn');
   } else if (a.kind === 'cinta') { p.fuerza = Math.min(100, p.fuerza + 2); p.energia = Math.max(0, p.energia - 7); say(s, `Entrenaste. Fuerza ${Math.floor(p.fuerza)}.`, 'ok'); }
   else if (a.kind === 'estudio') { p.conoc = Math.min(100, p.conoc + 2); p.energia = Math.max(0, p.energia - 6); say(s, `Estudiaste manuales. Conocimiento ${Math.floor(p.conoc)}.`, 'ok'); }
   else if (a.kind === 'trabajo') { s.worked++; if (s.worked % 2 === 0 && p.inv.length < capacity(s)) { const it = pickWeighted(s, LOOT); p.inv.push(it); say(s, `Buen trabajo. Encontraste: ${ITEMS[it].name}.`, 'ok'); } else say(s, 'Trabajaste un rato.', 'ok'); }

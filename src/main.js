@@ -243,6 +243,8 @@ function draw(t) {
     if (o.t === 'palanca' && s.final) R(cx, s.final.lever ? '#4dff88' : (Math.floor(t / 200) % 2 ? '#ffc23d' : '#ff4b4b'), px + 6, py - 4, 4, 3);
     if (o.t === 'estudio' && Math.floor(t / 600 + o.x) % 2) R(cx, '#9fd4ff', px + 10, py + 5, 1, 1);
   }
+  // cosas tiradas
+  for (const f of s.floor) if (vis(Math.floor(f.x), Math.floor(f.y))) { const c = ITEMS[f.id]?.tool ? '#ffc23d' : '#c8d2e6'; R(cx, 'rgba(0,0,0,.4)', f.x * TS - 3, f.y * TS + 1, 7, 3); R(cx, c, f.x * TS - 3, f.y * TS - 3, 6, 5); R(cx, '#fff', f.x * TS - 2, f.y * TS - 2, 2, 1); }
   // problemas
   for (const h of s.hazards) drawHazard(h, t, vis);
   // tripulación
@@ -517,7 +519,7 @@ function intro() {
 function help(back) {
   menu = 'ayuda';
   open(`<h2>CÓMO SE JUEGA</h2>
-    <p><kbd>WASD</kbd>/<kbd>flechas</kbd> moverse · <kbd>Shift</kbd> agacharse (silencioso) · <kbd>E</kbd> usar / hablar · <kbd>F</kbd> esconderse · <kbd>T</kbd> lanzar pieza (ruido) · <kbd>I</kbd> mochila · <kbd>C</kbd> fabricar · <kbd>Q</kbd> inhibidor · <kbd>M</kbd> música · <kbd>Esc</kbd> pausa</p>
+    <p><kbd>WASD</kbd>/<kbd>flechas</kbd> moverse · <kbd>Shift</kbd> agacharse (silencioso) · <kbd>E</kbd> usar / hablar · <kbd>F</kbd> esconderse · <kbd>T</kbd> lanzar pieza (ruido) · <kbd>G</kbd> soltar lo último (o SOLTAR en la mochila) · <kbd>I</kbd> mochila · <kbd>C</kbd> fabricar · <kbd>Q</kbd> inhibidor · <kbd>M</kbd> música · <kbd>Esc</kbd> pausa</p>
     <p><b>Sigilo:</b> si un dron o un guardia te <b>toca</b> con algo raro encima, te atrapan. Caminar hace ruido: agáchate. Escóndete en <b>casilleros</b> o bajo las camas; si te vieron entrar, vendrán a revisar y tendrás que <b>contener la respiración</b>. Lanza piezas para distraerlos.</p>
     <p><b>Manipula:</b> cuando un compañero está contento (ya le hiciste el favor), pídele que distraiga a un dron o guardia 30 s. Soborna al Soplón, desenmascara al Doble, entretén a Volkov.</p>
     <p><b>Villanos:</b> cada destino tiene 10. La IA siempre está; los demás se sortean cada día (mira «Amenazas de hoy»). Las <b>misiones por radio</b> tienen reloj y dan premios.</p>
@@ -556,15 +558,16 @@ function stashMenu() {
 
 function bagMenu() {
   menu = 'mochila';
-  const it = (id) => { const d = ITEMS[id]; return `<div class="it ${d.plan ? 'plan' : d.tool ? 'tool' : ''}">${icon(id)}<span>${G.itemName(s, id)}<small>${d.info ?? (d.tool ? 'Herramienta (te la quitan si te pillan).' : 'Pieza para fabricar. Se puede lanzar (T) para hacer ruido.')}</small></span></div>`; };
+  const it = (id, i) => { const d = ITEMS[id]; return `<div class="it ${d.plan ? 'plan' : d.tool ? 'tool' : ''}">${icon(id)}<span>${G.itemName(s, id)}<small>${d.info ?? (d.tool ? 'Herramienta (te la quitan si te pillan).' : 'Pieza para fabricar. Se puede lanzar (T) para hacer ruido.')}</small>${i != null && !(id in s.L.plan) ? `<button class="soltar" data-soltar="${i}">SOLTAR</button>` : ''}</span></div>`; };
   const plan = G.PLAN_IDS.map((id) => `<li class="${G.has(s, id) ? 'ok' : ''}">${s.L.plan[id].name}${G.has(s, id) ? '' : ' — ' + s.L.plan[id].hint}</li>`).join('');
   open(`<h2>MOCHILA (${s.p.inv.length}/${G.capacity(s)})</h2>
-    <div class="mochila">${s.p.inv.map(it).join('') || '<p style="color:var(--dim)">(vacía)</p>'}</div>
-    <h3>EN TU ESCONDITE (${s.stash.length}/${G.STASH_MAX})</h3><div class="mochila">${s.stash.map(it).join('') || '<p style="color:var(--dim)">(vacío)</p>'}</div>
+    <div class="mochila">${s.p.inv.map((x, i) => it(x, i)).join('') || '<p style="color:var(--dim)">(vacía)</p>'}</div>
+    <h3>EN TU ESCONDITE (${s.stash.length}/${G.STASH_MAX})</h3><div class="mochila">${s.stash.map((x) => it(x)).join('') || '<p style="color:var(--dim)">(vacío)</p>'}</div>
     <h3>PLAN DE REGRESO</h3><ul class="plan">${plan}</ul>
     <p style="color:var(--dim)">Herramientas encima: ${s.p.inv.filter(G.isContraband).length} · con 2 o más te las quitan en el pase de lista.</p>
     <div class="fila"><button id="cerrar">CERRAR [I]</button></div>`);
   $('cerrar').onclick = close;
+  $('ventana').querySelectorAll('[data-soltar]').forEach((b) => (b.onclick = () => { G.dropItem(s, +b.dataset.soltar); bagMenu(); }));
 }
 
 // Minijuego 0: contener la respiración. Mantén ESPACIO (o el botón) para empujar la aguja dentro de la zona.
@@ -666,6 +669,7 @@ function act(k) {
   else if (k === 'c') craftMenu();
   else if (k === 'f') G.toggleHide(s);
   else if (k === 't') G.throwItem(s);
+  else if (k === 'g') G.dropItem(s);
   else if (k === 'i') bagMenu();
   else if (k === 'p' || k === 'escape') { open(`<h2>PAUSA</h2><div class="fila"><button id="seguir">SEGUIR [Esc]</button><button id="mus">${M.on() ? 'QUITAR MÚSICA' : 'PONER MÚSICA'}</button><button id="ay">AYUDA</button><button id="salir">SALIR AL MENÚ (se guarda)</button></div>`); menu = 'pausa'; $('mus').onclick = () => { M.toggle(); close(); act('p'); }; $('seguir').onclick = close; $('ay').onclick = () => help(() => { close(); act('p'); }); $('salir').onclick = () => { save(); titleScreen(); }; }
 }
@@ -675,7 +679,7 @@ addEventListener('keydown', (e) => {
   if (e.repeat) return;
   keys.add(k);
   if (k === 'escape' && menu && !['titulo', 'fin', 'protocolo', 'intro', 'codigo', 'cables', 'respira'].includes(menu)) { if (menu === 'escondite') s.pending = null; close(); return; }
-  if (['e', 'q', 'c', 'p', 'f', 't', 'i', 'm', 'escape'].includes(k)) act(k);
+  if (['e', 'q', 'c', 'p', 'f', 't', 'g', 'i', 'm', 'escape'].includes(k)) act(k);
 });
 addEventListener('keyup', (e) => keys.delete(e.key.toLowerCase()));
 addEventListener('blur', () => keys.clear());
