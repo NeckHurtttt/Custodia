@@ -49,6 +49,8 @@ canvas { display: block; width: 100%; height: auto; image-rendering: pixelated; 
 .titulo { text-align: center; } .titulo .grande { font-size: 3.2rem; letter-spacing: .14em; color: var(--fg); margin: .2rem 0; }
 .titulo .grande b { color: var(--amber); font-weight: normal; }
 .destinos { display: grid; grid-template-columns: repeat(3, 1fr); gap: .6rem; margin: 1rem 0; }
+.destino { display: flex; flex-direction: column; gap: .3rem; }
+.destino .ico { font-size: 2.2rem; } .destinos small.ia { color: var(--red); }
 .destinos button { padding: .7rem .3rem; font-size: 1.2rem; display: flex; flex-direction: column; align-items: center; gap: .2rem; }
 .destinos small { color: var(--dim); font-size: .9rem; }
 .pasos { display: grid; gap: .35rem; margin: .6rem 0; }
@@ -74,3 +76,11 @@ kbd { border: 1px solid var(--line); padding: 0 .3rem; color: var(--amber); }
   .barra { gap: .6rem; font-size: .9rem; }
 }
 @media (max-width: 560px) { .panel { grid-template-columns: 1fr; } .destinos { grid-template-columns: 1fr; } .titulo .grande { font-size: 2.2rem; } }
+
+.crew { list-style: none; margin: 0; padding: 0; font-size: .95rem; } .crew li { display: flex; align-items: center; gap: .3rem; } .crew svg { width: 16px; height: 16px; vertical-align: middle; }
+.slot svg, .receta svg, .lista-it svg { image-rendering: pixelated; }
+.lista-it button { display: flex; align-items: center; gap: .4rem; }
+.teclado { display: grid; grid-template-columns: repeat(3, 64px); gap: 6px; justify-content: center; margin: .8rem 0; }
+.teclado button { height: 64px; font-size: 1.8rem; } .teclado button.lit { background: var(--fg); color: #000; box-shadow: 0 0 18px var(--fg); }
+.cables { display: flex; justify-content: space-between; margin: .8rem 2rem; } .cables > div { display: grid; gap: 10px; }
+.cables button { width: 90px; height: 30px; border: 2px solid #000; color: #000; font-weight: bold; } .cables button.sel { outline: 3px solid #fff; } .cables button:disabled { opacity: .45; }

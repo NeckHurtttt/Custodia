@@ -1,200 +1,226 @@
 // Lógica de LIFELINE: Rutina (sin pantalla). La interfaz llama a update(), interact(), useQ(), craft()…
-import { W, H, DAYS, ROOMS, CORRIDORS, DUCTS, GRATES, OBJECTS, SCHEDULE, ITEMS, LOOT, RECIPES, PLAN, AI_LINES, DRONE_ROUTES } from './data.js';
+import { ITEMS, LOOT, RECIPES, HAZARDS } from './common.js';
+import { LOCS } from './locs.js';
 
+export const DAYS = 10;
 export const MIN_PER_SEC = 4;          // 1 s real = 4 min de juego
 export const SLEEP_MULT = 10;
 const CHECK_AFTER = 15;                // minutos de gracia para llegar al lugar del horario
-const VIEW = 5.5, FOV = Math.PI / 4;   // drones: alcance (casillas) y medio ángulo
-const idx = (x, y) => y * W + x;
-const inside = (x, y) => x >= 0 && y >= 0 && x < W && y < H;
+const VIEW = 5.5, FOV = Math.PI / 4;   // vigilancia: alcance (casillas) y medio ángulo
+const N4 = [[1, 0], [-1, 0], [0, 1], [0, -1]];
 
-// ---------- azar con semilla (para poder repetir partidas en las pruebas) ----------
+// ---------- azar con semilla (para repetir partidas en las pruebas) ----------
 export function rand(s) { s.seed = (s.seed + 0x6D2B79F5) | 0; let t = s.seed; t = Math.imul(t ^ (t >>> 15), t | 1); t ^= t + Math.imul(t ^ (t >>> 7), t | 61); return ((t ^ (t >>> 14)) >>> 0) / 4294967296; }
 const pick = (s, arr) => arr[Math.floor(rand(s) * arr.length)];
 function pickWeighted(s, table) { const tot = Object.values(table).reduce((a, b) => a + b, 0); let r = rand(s) * tot; for (const [k, w] of Object.entries(table)) { r -= w; if (r <= 0) return k; } return Object.keys(table)[0]; }
 
 // ---------- mapa ----------
-export function buildMap() {
+export function buildMap(L) {
+  const { W, H } = L; const idx = (x, y) => y * W + x; const ins = (x, y) => x >= 0 && y >= 0 && x < W && y < H;
   const grid = new Uint8Array(W * H);          // 0 vacío, 1 piso, 2 escotilla
-  const room = new Int8Array(W * H).fill(-1);   // sala de cada casilla (-1 = pasillo o vacío)
-  ROOMS.forEach((r, i) => { for (let y = r.y; y < r.y + r.h; y++) for (let x = r.x; x < r.x + r.w; x++) { grid[idx(x, y)] = 1; room[idx(x, y)] = i; } });
-  const doors = [];
-  const doorAt = new Int16Array(W * H).fill(-1);
-  CORRIDORS.forEach((c, ci) => {
+  const room = new Int8Array(W * H).fill(-1);
+  L.rooms.forEach((r, i) => { for (let y = r.y; y < r.y + r.h; y++) for (let x = r.x; x < r.x + r.w; x++) { grid[idx(x, y)] = 1; room[idx(x, y)] = i; } });
+  const doors = []; const doorAt = new Int16Array(W * H).fill(-1);
+  L.corridors.forEach((c) => {
     const [cx, cy, cw, ch] = c.r;
     for (let y = cy; y < cy + ch; y++) for (let x = cx; x < cx + cw; x++) grid[idx(x, y)] = 1;
-    // Escotilla en cada punta: las casillas del pasillo que tocan una sala.
     for (const rid of [c.a, c.b]) {
-      const ri = ROOMS.findIndex((r) => r.id === rid);
-      const tiles = [];
-      for (let y = cy; y < cy + ch; y++) for (let x = cx; x < cx + cw; x++) {
-        if ([[1, 0], [-1, 0], [0, 1], [0, -1]].some(([dx, dy]) => inside(x + dx, y + dy) && room[idx(x + dx, y + dy)] === ri)) tiles.push([x, y]);
-      }
+      const ri = L.rooms.findIndex((r) => r.id === rid); const tiles = [];
+      for (let y = cy; y < cy + ch; y++) for (let x = cx; x < cx + cw; x++) if (N4.some(([dx, dy]) => ins(x + dx, y + dy) && room[idx(x + dx, y + dy)] === ri)) tiles.push([x, y]);
       const lock = c.lock?.[rid] ?? null;
-      const d = { id: doors.length, tiles, room: rid, corridor: ci, lock, open: !lock };
-      doors.push(d);
-      for (const [x, y] of tiles) { grid[idx(x, y)] = 2; doorAt[idx(x, y)] = d.id; }
+      const d = { id: doors.length, tiles, room: rid, lock, open: !lock };
+      doors.push(d); for (const [x, y] of tiles) { grid[idx(x, y)] = 2; doorAt[idx(x, y)] = d.id; }
     }
   });
   const duct = new Uint8Array(W * H);
-  for (const [x0, y0, x1, y1] of DUCTS) for (let y = Math.min(y0, y1); y <= Math.max(y0, y1); y++) for (let x = Math.min(x0, x1); x <= Math.max(x0, x1); x++) duct[idx(x, y)] = 1;
+  for (const [x0, y0, x1, y1] of L.ducts) for (let y = Math.min(y0, y1); y <= Math.max(y0, y1); y++) for (let x = Math.min(x0, x1); x <= Math.max(x0, x1); x++) duct[idx(x, y)] = 1;
   return { grid, room, doors, doorAt, duct };
 }
 
-export const roomIdAt = (s, x, y) => { const i = s.map.room[idx(Math.floor(x), Math.floor(y))]; return i >= 0 ? ROOMS[i].id : 'pasillo'; };
-export const roomName = (id) => ROOMS.find((r) => r.id === id)?.name ?? 'Pasillo';
-const doorOf = (s, tx, ty) => { const d = s.map.doorAt[idx(tx, ty)]; return d >= 0 ? s.map.doors[d] : null; };
+const I = (s, x, y) => y * s.L.W + x;
+const inside = (s, x, y) => x >= 0 && y >= 0 && x < s.L.W && y < s.L.H;
+export const roomAt = (s, x, y) => { if (!inside(s, Math.floor(x), Math.floor(y))) return null; const i = s.map.room[I(s, Math.floor(x), Math.floor(y))]; return i >= 0 ? s.L.rooms[i] : null; };
+export const roomIdAt = (s, x, y) => roomAt(s, x, y)?.id ?? 'pasillo';
+export const roomName = (s, id) => s.L.rooms.find((r) => r.id === id)?.name ?? 'Pasillo';
+const doorOf = (s, tx, ty) => { const d = s.map.doorAt[I(s, tx, ty)]; return d >= 0 ? s.map.doors[d] : null; };
 
-/** ¿Se puede pisar? who: 'p' jugador, 'd' dron, 'gas' amoniaco/fuego. */
+/** ¿Se puede pisar? who: 'p' jugador, 'd' dron/tripulación/robot (abren escotillas), 'gas' nubes y cosas que no las abren. */
 export function walkable(s, tx, ty, who = 'p') {
-  if (!inside(tx, ty)) return false;
-  if (who === 'p' && s.p.inDuct) return s.map.duct[idx(tx, ty)] === 1;
-  const g = s.map.grid[idx(tx, ty)];
+  if (!inside(s, tx, ty)) return false;
+  if (who === 'p' && s.p.inDuct) return s.map.duct[I(s, tx, ty)] === 1;
+  const g = s.map.grid[I(s, tx, ty)];
   if (g === 1) return true;
   if (g === 2) return who === 'd' || doorOf(s, tx, ty).open;
   return false;
 }
 
-/** Línea de vista: la cortan las paredes y las escotillas cerradas. */
 export function los(s, x0, y0, x1, y1) {
   const d = Math.hypot(x1 - x0, y1 - y0); const n = Math.ceil(d / 0.2);
   for (let i = 1; i < n; i++) {
-    const x = x0 + (x1 - x0) * i / n, y = y0 + (y1 - y0) * i / n;
-    const tx = Math.floor(x), ty = Math.floor(y); const g = s.map.grid[idx(tx, ty)];
+    const tx = Math.floor(x0 + (x1 - x0) * i / n), ty = Math.floor(y0 + (y1 - y0) * i / n);
+    if (!inside(s, tx, ty)) return false;
+    const g = s.map.grid[I(s, tx, ty)];
     if (g === 0) return false;
     if (g === 2 && !doorOf(s, tx, ty).open) return false;
   }
   return true;
 }
 
-/** Camino más corto (BFS) entre casillas. Devuelve la lista de casillas sin la de partida. */
-export function path(s, sx, sy, tx, ty, who = 'd') {
+/** Camino más corto (BFS). avoid: ids de salas que no se pisan. */
+export function path(s, sx, sy, tx, ty, who = 'd', avoid = null) {
+  const { W, H } = s.L;
   sx = Math.floor(sx); sy = Math.floor(sy); tx = Math.floor(tx); ty = Math.floor(ty);
   if (sx === tx && sy === ty) return [];
-  const prev = new Int32Array(W * H).fill(-1); const q = [idx(sx, sy)]; prev[q[0]] = q[0];
-  for (let h = 0; h < q.length; h++) {
+  if (!inside(s, tx, ty)) return null;
+  const prev = new Int32Array(W * H).fill(-1); const st = I(s, sx, sy); const q = [st]; prev[st] = st; const end = I(s, tx, ty);
+  for (let h = 0; h < q.length && prev[end] === -1; h++) {
     const c = q[h]; const cx = c % W, cy = (c / W) | 0;
-    if (cx === tx && cy === ty) break;
-    for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
-      const nx = cx + dx, ny = cy + dy;
-      if (!inside(nx, ny)) continue; const n = idx(nx, ny);
+    for (const [dx, dy] of N4) {
+      const nx = cx + dx, ny = cy + dy; if (!inside(s, nx, ny)) continue; const n = I(s, nx, ny);
       if (prev[n] !== -1) continue;
       const g = s.map.grid[n];
       if (g === 0 || (g === 2 && who === 'gas' && !doorOf(s, nx, ny).open)) continue;
+      if (avoid && n !== end) { const ri = s.map.room[n]; if (ri >= 0 && avoid.includes(s.L.rooms[ri].id)) continue; }
       prev[n] = c; q.push(n);
     }
   }
-  const end = idx(tx, ty); if (prev[end] === -1) return null;
-  const out = []; for (let c = end; c !== idx(sx, sy); c = prev[c]) out.push([c % W, (c / W) | 0]);
+  if (prev[end] === -1) return null;
+  const out = []; for (let c = end; c !== st; c = prev[c]) out.push([c % W, (c / W) | 0]);
   return out.reverse();
 }
 
+/** Mueve un cuerpo por el camino hacia goal. Devuelve true si llegó. */
+function follow(s, b, goal, speed, dt, who = 'd') {
+  b.repath = (b.repath ?? 0) - dt;
+  const key = `${Math.floor(goal[0])},${Math.floor(goal[1])}`;
+  if (!b.path || b.repath <= 0 || b.goalKey !== key) { b.path = path(s, b.x, b.y, goal[0], goal[1], who, b.avoid) ?? []; b.goalKey = key; b.repath = b.chasing ? 0.4 : 3; }
+  let step = speed * dt;
+  while (step > 0) {
+    const next = b.path[0]; const tx = next ? next[0] + 0.5 : goal[0], ty = next ? next[1] + 0.5 : goal[1];
+    const dx = tx - b.x, dy = ty - b.y, dist = Math.hypot(dx, dy);
+    if (dist < 0.02) { if (next) { b.path.shift(); continue; } return true; }
+    b.dir = Math.atan2(dy, dx); b.moving = true;
+    const m = Math.min(step, dist); b.x += (dx / dist) * m; b.y += (dy / dist) * m; step -= m;
+    if (m >= dist && next) b.path.shift(); else break;
+  }
+  return false;
+}
+
 // ---------- partida nueva ----------
-export function newGame(seed = Date.now() & 0xffffffff) {
+export function newGame(loc = 'estacion', seed = Date.now() & 0x7fffffff) {
+  const L = LOCS[loc];
   const s = {
-    seed, day: 1, min: 360 - 20, map: buildMap(),
-    p: { x: 3.5, y: 3.5, dir: 0, inDuct: false, sleep: false, salud: 100, energia: 90, fuerza: 5, conoc: 5, inv: ['cinta', 'tornillos'], hit: 0 },
-    stash: [], alert: 0, integ: 100, iaOn: true, frags: [false, false, false], grates: GRATES.map(() => false),
-    objects: OBJECTS.map((o) => ({ ...o, loot: [], used: false })),
-    drones: [], hazards: [], log: [], block: -1, blockStart: 0, checked: false, ate: false, worked: 0, illegal: 0,
-    action: null, pending: null, final: null, over: null, msg: null, events: [], noise: null, stats: { caught: 0, solved: 0 },
+    loc, L, seed, day: 1, min: 340, map: buildMap(L),
+    p: { x: 3.5, y: 3.5, dir: 0, inDuct: false, sleep: false, salud: 100, energia: 90, fuerza: 5, conoc: 5, o2: 100, inv: ['cinta', 'tornillos'], hit: 0, walk: 0 },
+    stash: [], alert: 0, integ: 100, iaOn: true, frags: [false, false, false], grates: L.grates.map(() => false),
+    objects: L.objects.map((o) => ({ ...o, loot: [], used: false })),
+    drones: [], hazards: [], crew: [], log: [], block: -1, blockStart: 0, checked: false, ate: false, worked: 0, illegal: 0,
+    action: null, pending: null, final: null, over: null, msg: null, events: [], noise: null, stats: { caught: 0, solved: 0, favors: 0 },
   };
   for (let i = 0; i < 2; i++) addDrone(s, i);
-  refill(s); planEvents(s);
-  say(s, 'Día 1. CUSTODIA, la IA de la estación, cortó el enlace con la Tierra. Dice que la tripulación "no está apta para volver".', 'ia');
-  say(s, 'Cumple la rutina para no levantar sospechas y prepara tu regreso en secreto. Tienes 10 días.', 'info');
+  L.crew.forEach((c, i) => { const [bx, by] = L.beds[i]; s.crew.push({ ...c, x: bx + 0.5, y: by + 0.5, dir: 0, path: null, goal: null, sayT: 5 + i * 7, say: null, want: null, avoid: ['ia', 'esclusa', 'capsula', 'exterior'] }); });
+  refill(s); planEvents(s); newWants(s);
+  say(s, `Día 1 en ${L.name}. ${L.ai} tomó el control. Tienes ${DAYS} días para volver a casa.`, 'ia');
   return s;
 }
+/** Después de cargar una partida guardada: vuelve a armar lo que no se guarda. */
+export function revive(o) {
+  o.L = LOCS[o.loc]; const map = buildMap(o.L);
+  (o.doorsOpen ?? []).forEach((v, i) => { if (map.doors[i]) map.doors[i].open = v; }); delete o.doorsOpen;
+  o.map = map; o.pending = null; o.action = null;
+  for (const h of o.hazards) h.def = HAZARDS[h.kind];
+  return o;
+}
+export function serialize(s) { const { map, L, ...rest } = s; return JSON.stringify({ ...rest, hazards: s.hazards.map(({ def, ...h }) => h), doorsOpen: map.doors.map((d) => d.open) }); }
 
 function addDrone(s, i) {
-  const r = DRONE_ROUTES[i % DRONE_ROUTES.length];
-  s.drones.push({ x: r[0][0] + 0.5, y: r[0][1] + 0.5, route: i, wp: 1, path: null, dir: 0, mode: 'patrulla', stun: 0, lost: 0, target: null, repath: 0, cd: 0 });
+  const r = s.L.routes[i % s.L.routes.length];
+  s.drones.push({ x: r[0][0] + 0.5, y: r[0][1] + 0.5, route: i, wp: 1, path: null, dir: 0, mode: 'patrulla', stun: 0, lost: 0, target: null, cd: 0, avoid: ['exterior'] });
 }
 
-export function say(s, text, kind = 'info') { s.log.push({ text, kind, day: s.day, min: Math.floor(s.min) }); if (s.log.length > 40) s.log.shift(); }
-const flash = (s, text, kind = 'info') => { s.msg = { text, kind, t: 3 }; say(s, text, kind); };
+export function say(s, text, kind = 'info') { s.log.push({ text, kind, day: s.day, min: Math.floor(s.min) }); if (s.log.length > 50) s.log.shift(); }
+const flash = (s, text, kind = 'info') => { s.msg = { text, kind, t: 3.2 }; say(s, text, kind); };
+export const itemName = (s, id) => s.L.plan[id]?.name ?? ITEMS[id]?.name ?? id;
 
-function refill(s) {
-  for (const o of s.objects) if (o.t === 'cajon') { o.loot = []; const n = rand(s) < 0.75 ? 1 + (rand(s) < 0.35 ? 1 : 0) : 0; for (let k = 0; k < n; k++) o.loot.push(pickWeighted(s, LOOT)); }
-}
+function refill(s) { for (const o of s.objects) if (o.t === 'cajon') { o.loot = []; const n = rand(s) < 0.75 ? 1 + (rand(s) < 0.35 ? 1 : 0) : 0; for (let k = 0; k < n; k++) o.loot.push(pickWeighted(s, LOOT)); } }
+function planEvents(s) { const n = s.day < 2 ? 0 : s.day < 5 ? 1 : 2; s.events = Array.from({ length: n }, () => 480 + Math.floor(rand(s) * 780)).sort((a, b) => a - b); }
+function newWants(s) { for (const c of s.crew) { c.want = pickWeighted(s, LOOT); c.reward = pick(s, ['conoc', 'fuerza', 'pieza', 'pieza', 'chip']); } }
 
-function planEvents(s) {
-  const n = s.day < 2 ? 0 : s.day < 5 ? 1 : 2;
-  s.events = Array.from({ length: n }, () => 480 + Math.floor(rand(s) * 780)).sort((a, b) => a - b);
-}
-
-// ---------- utilidades del jugador ----------
+// ---------- jugador ----------
 export const capacity = (s) => 5 + Math.floor(s.p.fuerza / 20);
 export const has = (s, id) => s.p.inv.includes(id);
 export const isContraband = (id) => !!ITEMS[id]?.tool;
-function give(s, id) { if (s.p.inv.length >= capacity(s)) { flash(s, `Llevas las manos llenas: no puedes tomar ${ITEMS[id].name}. Guarda cosas en tu escondite.`, 'warn'); return false; } s.p.inv.push(id); return true; }
+function give(s, id) { if (s.p.inv.length >= capacity(s)) { flash(s, `Llevas las manos llenas: no puedes tomar ${itemName(s, id)}. Deja cosas en tu escondite.`, 'warn'); return false; } s.p.inv.push(id); return true; }
 function take(s, id) { const i = s.p.inv.indexOf(id); if (i >= 0) s.p.inv.splice(i, 1); return i >= 0; }
-export const block = (s) => SCHEDULE.find((b) => s.min >= b.from && s.min < b.to) ?? SCHEDULE[0];
+export const block = (s) => s.L.schedule.find((b) => s.min >= b.from && s.min < b.to) ?? s.L.schedule[0];
 export const isNight = (s) => s.min < 360 || s.min >= 1320;
 export const playerRoom = (s) => roomIdAt(s, s.p.x, s.p.y);
-export const planDone = (s) => PLAN.every((p) => has(s, p.id));
+export const isOutside = (s, x = s.p.x, y = s.p.y) => !!roomAt(s, x, y)?.outside;
+export const PLAN_IDS = ['codigo', 'celda', 'traje', 'llave'];
+export const planDone = (s) => PLAN_IDS.every((id) => has(s, id));
 export const clock = (m) => `${String(Math.floor(m / 60) % 24).padStart(2, '0')}:${String(Math.floor(m % 60)).padStart(2, '0')}`;
+export const recipes = (s) => RECIPES.filter((r) => !r.locs || r.locs.includes(s.loc));
+/** Tormenta encima del jugador (oscuridad y menos visión de los drones). */
+export const storm = (s) => s.hazards.find((h) => h.def.type === 'front' && h.def.dark && h.phase === 'barre' && s.p.x < h.x);
 
 function raise(s, n, why) {
   if (!s.iaOn || s.over || s.final) return;
   s.alert = Math.min(100, s.alert + n);
-  if (why) say(s, `CUSTODIA: ${why} (+${Math.round(n)} de alerta)`, 'ia');
+  if (why) say(s, `${s.L.ai}: ${why} (+${Math.round(n)} de alerta)`, 'ia');
   if (s.alert >= 100) lockdown(s);
 }
-
 function lockdown(s) {
   const lost = s.p.inv.filter(isContraband);
   s.p.inv = s.p.inv.filter((i) => !isContraband(i));
   Object.assign(s.p, { x: 3.5, y: 3.5, inDuct: false });
   s.alert = 40; s.stats.caught++;
-  flash(s, `¡BLOQUEO! CUSTODIA te encerró en el dormitorio${lost.length ? ' y confiscó: ' + lost.map((i) => ITEMS[i].name).join(', ') : ''}. Lo de tu escondite está a salvo.`, 'bad');
+  flash(s, `¡BLOQUEO! ${s.L.ai} te encerró en el dormitorio${lost.length ? ' y confiscó: ' + lost.map((i) => itemName(s, i)).join(', ') : ''}. Lo del escondite está a salvo.`, 'bad');
 }
 
 // ---------- ciclo principal ----------
-/** input: { dx, dy } (−1..1). dt en segundos reales. */
 export function update(s, dt, input = { dx: 0, dy: 0 }) {
   if (s.over || s.pending) return;
   if (s.msg && (s.msg.t -= dt) <= 0) s.msg = null;
+  const p = s.p;
   const moving = Math.abs(input.dx) + Math.abs(input.dy) > 0.1;
-  if (s.p.sleep && (moving || !isNight(s))) { s.p.sleep = false; if (!isNight(s)) say(s, 'Despiertas. Hora del pase de lista.', 'info'); }
-  const mult = s.p.sleep ? SLEEP_MULT : 1;
+  if (p.sleep && (moving || !isNight(s))) { p.sleep = false; if (!isNight(s)) say(s, 'Despiertas. Hora del pase de lista.', 'info'); }
   const prevMin = s.min;
-  s.min += dt * MIN_PER_SEC * mult;
-  const dm = s.min - prevMin; // minutos de juego que pasaron
+  s.min += dt * MIN_PER_SEC * (p.sleep ? SLEEP_MULT : 1);
+  const dm = s.min - prevMin;
 
-  // horario
   if (s.min >= 1440) { newDay(s); if (s.over) return; }
-  const bi = SCHEDULE.indexOf(block(s));
+  const bi = s.L.schedule.indexOf(block(s));
   if (bi !== s.block) { s.block = bi; s.blockStart = s.min; s.checked = false; s.ate = false; s.worked = 0; onBlockStart(s); }
   if (!s.checked && s.min - s.blockStart >= CHECK_AFTER) { s.checked = true; checkBlock(s); }
   if (s.events.length && s.min >= s.events[0]) { s.events.shift(); spawnHazard(s); }
-  if (s.min >= 1260 && s.min - dm < 1260 && s.iaOn) say(s, AI_LINES[Math.min(s.day - 1, AI_LINES.length - 1)], 'ia');
+  if (s.min >= 1260 && prevMin < 1260 && s.iaOn) say(s, `${s.L.ai}: ${s.L.aiLines[Math.min(s.day - 1, s.L.aiLines.length - 1)]}`, 'ia');
 
-  // cuerpo
-  const p = s.p;
-  p.energia = Math.max(0, p.energia - dm * (p.sleep ? -0.22 : 0.07));
-  if (p.sleep) p.energia = Math.min(100, p.energia);
+  p.energia = p.sleep ? Math.min(100, p.energia + dm * 0.22) : Math.max(0, p.energia - dm * 0.07);
   if (p.energia > 30) p.salud = Math.min(100, p.salud + dm * 0.02);
   if (s.iaOn) s.alert = Math.max(0, s.alert - dm / 40);
   if (s.illegal > 0) s.illegal -= dt;
   if (p.hit > 0) p.hit -= dt;
+  // oxígeno: afuera sin traje se acaba muy rápido
+  if (isOutside(s) && !p.inDuct) { p.o2 = Math.max(0, p.o2 - dt * (has(s, 'traje') ? 0.6 : 14)); if (p.o2 <= 0) { p.salud -= 18 * dt; p.hit = 0.2; } }
+  else p.o2 = Math.min(100, p.o2 + dt * 25);
 
-  // movimiento
   if (moving && !p.sleep) {
-    if (s.action) s.action = null;
+    s.action = null;
     const len = Math.hypot(input.dx, input.dy);
-    const sp = (p.energia <= 0 ? 1.8 : 3.6) * dt;
-    p.dir = Math.atan2(input.dy, input.dx);
+    let sp = (p.energia <= 0 ? 1.8 : 3.6) * dt;
+    if (slowHere(s)) sp *= 0.5;
+    p.dir = Math.atan2(input.dy, input.dx); p.walk += dt;
     moveBody(s, p, (input.dx / len) * sp, (input.dy / len) * sp, 0.28, 'p');
   }
   if (s.action) { s.action.t += dt; if (s.action.t >= s.action.need) { const a = s.action; s.action = null; finishAction(s, a); } }
 
   updateHazards(s, dt, dm);
   updateDrones(s, dt);
+  updateCrew(s, dt);
   if (s.final) updateFinal(s, dt);
 
-  if (p.salud <= 0) end(s, false, 'Evacuación médica', 'Tu salud llegó a cero. La tripulación te llevó a la cápsula de emergencia… y CUSTODIA se quedó con la estación.');
-  if (s.integ <= 0) end(s, false, 'Estación perdida', 'La estación quedó inhabitable. Demasiados problemas sin resolver.');
+  if (p.salud <= 0) end(s, false, 'Evacuación médica', `Tu salud llegó a cero. ${s.L.ai} se quedó con todo.`);
+  if (s.integ <= 0) end(s, false, 'Base perdida', 'La base quedó inhabitable: demasiados problemas sin resolver.');
 }
 
 export function moveBody(s, b, mx, my, r, who) {
@@ -205,16 +231,16 @@ export function moveBody(s, b, mx, my, r, who) {
 
 function newDay(s) {
   s.min -= 1440; s.day++;
-  if (s.day > DAYS) { end(s, false, 'CUSTODIA ganó', 'Pasaron los 10 días. CUSTODIA tomó el control total de la estación y nadie volvió a casa.'); return; }
-  if (s.day === 4 && s.drones.length < 3) { addDrone(s, 2); say(s, 'CUSTODIA activó un tercer dron de vigilancia.', 'ia'); }
-  refill(s); planEvents(s);
+  if (s.day > DAYS) { end(s, false, `${s.L.ai} ganó`, `Pasaron los ${DAYS} días. ${s.L.ai} tomó el control total y nadie volvió a casa.`); return; }
+  if (s.day === 4 && s.drones.length < 3) { addDrone(s, 2); say(s, `${s.L.ai} activó un tercer ${s.L.watcher} de vigilancia.`, 'ia'); }
+  refill(s); planEvents(s); newWants(s);
   say(s, `— Día ${s.day} de ${DAYS} —`, 'day');
 }
 
 function onBlockStart(s) {
   const b = block(s);
-  if (b.id === 'dormir' && s.min >= 1320) say(s, 'Luces apagadas: los drones vigilan los pasillos. Fuera del dormitorio es sospechoso.', 'warn');
-  else if (b.room) say(s, `Ahora: ${b.name} → ${roomName(b.room)}.`, 'info');
+  if (b.id === 'dormir' && s.min >= 1320) say(s, `Luces apagadas: la vigilancia sigue. Fuera del dormitorio es sospechoso.`, 'warn');
+  else if (b.room) say(s, `Ahora: ${b.name} → ${roomName(s, b.room)}.`, 'info');
 }
 
 function checkBlock(s) {
@@ -223,129 +249,160 @@ function checkBlock(s) {
   if (b.id === 'lista') {
     if (!here) { raise(s, 20, 'Faltaste al pase de lista.'); return; }
     const cb = s.p.inv.filter(isContraband);
-    if (cb.length >= 2) {
-      const it = pick(s, cb); take(s, it);
-      raise(s, 12, `Revisé tus bolsillos en el pase de lista y me llevé: ${ITEMS[it].name}.`);
-    } else say(s, 'Pase de lista sin problemas. (Llevar 2 o más herramientas encima es arriesgado.)', 'ok');
-  } else if (b.id === 'dormir') {
-    if (!here) raise(s, 15, 'No estabas en tu cama al apagar las luces.');
-  } else if (!here && !s.hazards.length) raise(s, 10, `No fuiste a: ${b.name}.`);
+    if (cb.length >= 2) { const it = pick(s, cb); take(s, it); raise(s, 12, `Revisé tus bolsillos en el pase de lista y me llevé: ${itemName(s, it)}.`); }
+    else say(s, 'Pase de lista sin problemas. (Llevar 2 o más herramientas encima es arriesgado.)', 'ok');
+  } else if (b.id === 'dormir') { if (!here) raise(s, 15, 'No estabas en tu cama al apagar las luces.'); }
+  else if (!here && !s.hazards.length) raise(s, 10, `No fuiste a: ${b.name}.`);
 }
 
-// ---------- drones ----------
+// ---------- vigilancia ----------
 function updateDrones(s, dt) {
-  const p = s.p;
+  const p = s.p; const dark = storm(s);
+  const front = s.hazards.find((h) => h.def.type === 'front' && h.def.safe);
   for (const d of s.drones) {
+    d.moving = false;
     if (!s.iaOn) { d.mode = 'apagado'; continue; }
     if (d.stun > 0) { d.stun -= dt; continue; }
     d.cd = Math.max(0, d.cd - dt);
-    const sees = canSee(s, d);
-    const sus = sees && suspicious(s);
-    if (sus) { d.mode = 'persigue'; d.lost = 0; d.target = [p.x, p.y]; raise(s, 14 * dt * (s.final ? 2 : 1)); }
+    const sees = canSee(s, d, dark ? 0.55 : 1);
+    if (sees && suspicious(s)) { d.mode = 'persigue'; d.lost = 0; d.target = [p.x, p.y]; raise(s, 14 * dt); }
     else if (d.mode === 'persigue') { d.lost += dt; if (d.lost > 3) { d.mode = 'patrulla'; d.path = null; } }
-    // ruido de la chatarra: el dron más cercano va a mirar
+    d.chasing = d.mode === 'persigue' || !!s.final;
     let goal;
-    const haz = s.hazards.find((h) => h.kind !== 'chatarra');
+    const haz = s.hazards.find((h) => !['bouncer', 'front'].includes(h.def.type) && !isOutside(s, h.x, h.y));
     if (d.mode === 'persigue') goal = d.target;
-    else if (s.final) { d.mode = 'persigue'; goal = [p.x, p.y]; }
+    else if (s.final) goal = [p.x, p.y];
+    else if (front && d.route !== 0) { const r = s.L.rooms.find((x) => x.id === 'ia'); goal = [r.x + 2.5, r.y + 2.5]; }
     else if (haz && d.route !== 0) goal = [haz.x, haz.y];
-    else if (s.noise && d === nearestDrone(s, s.noise.x, s.noise.y)) goal = [s.noise.x, s.noise.y];
-    else { const r = DRONE_ROUTES[d.route % DRONE_ROUTES.length]; const w = r[d.wp % r.length]; goal = [w[0] + 0.5, w[1] + 0.5]; if (Math.hypot(goal[0] - d.x, goal[1] - d.y) < 0.6) { d.wp = (d.wp + 1) % r.length; d.path = null; } }
-    d.repath -= dt;
-    if (!d.path || d.repath <= 0) { d.path = path(s, d.x, d.y, goal[0], goal[1], 'd') ?? []; d.repath = d.mode === 'persigue' ? 0.4 : 2; }
-    const speed = (d.mode === 'persigue' ? 3.1 : 1.9) * (s.final ? 1.25 : 1);
-    let step = speed * dt;
-    while (step > 0) {
-      const next = d.path[0]; const tx = next ? next[0] + 0.5 : goal[0], ty = next ? next[1] + 0.5 : goal[1];
-      const dx = tx - d.x, dy = ty - d.y, dist = Math.hypot(dx, dy);
-      if (dist < 0.01) { if (next) { d.path.shift(); continue; } break; }
-      d.dir = Math.atan2(dy, dx);
-      const m = Math.min(step, dist); d.x += (dx / dist) * m; d.y += (dy / dist) * m; step -= m;
-      if (m >= dist && next) d.path.shift(); else break;
-    }
+    else if (s.noise && d === nearest(s.drones.filter((x) => x.stun <= 0), s.noise.x, s.noise.y)) goal = [s.noise.x, s.noise.y];
+    else { const r = s.L.routes[d.route % s.L.routes.length]; let w = r[d.wp % r.length]; if (Math.hypot(w[0] + 0.5 - d.x, w[1] + 0.5 - d.y) < 0.6) { d.wp = (d.wp + 1) % r.length; w = r[d.wp]; } goal = [w[0] + 0.5, w[1] + 0.5]; }
+    follow(s, d, goal, (d.chasing ? 3.1 : 1.9) * (s.final ? 1.25 : 1), dt, 'd');
     if (d.mode === 'persigue' && sees) d.dir = Math.atan2(p.y - d.y, p.x - d.x);
-    // atrapa al jugador
-    if (d.mode === 'persigue' && d.cd <= 0 && !p.inDuct && Math.hypot(p.x - d.x, p.y - d.y) < 0.7) {
+    if (d.chasing && d.cd <= 0 && !p.inDuct && Math.hypot(p.x - d.x, p.y - d.y) < 0.7) {
       d.cd = 4; s.stats.caught++;
-      if (s.final) { s.final.t -= 8; p.hit = 0.8; flash(s, '¡Un dron te frenó! −8 s.', 'bad'); d.stun = 3; continue; }
+      if (s.final) { s.final.t -= 8; p.hit = 0.8; flash(s, `¡Un ${s.L.watcher} te frenó! −8 s.`, 'bad'); d.stun = 3; continue; }
       const cb = p.inv.filter(isContraband); const it = cb.length ? pick(s, cb) : null; if (it) take(s, it);
       p.energia = Math.max(0, p.energia - 15); p.hit = 0.6;
-      raise(s, 18, `Un dron te atrapó${it ? ' y te quitó: ' + ITEMS[it].name : ''}.`);
+      raise(s, 18, `Un ${s.L.watcher} te atrapó${it ? ' y te quitó: ' + itemName(s, it) : ''}.`);
       d.mode = 'patrulla'; d.path = null;
     }
   }
   if (s.noise && (s.noise.t -= dt) <= 0) s.noise = null;
 }
+const nearest = (arr, x, y) => arr.slice().sort((a, b) => Math.hypot(a.x - x, a.y - y) - Math.hypot(b.x - x, b.y - y))[0];
 
-const nearestDrone = (s, x, y) => s.drones.filter((d) => d.stun <= 0).sort((a, b) => Math.hypot(a.x - x, a.y - y) - Math.hypot(b.x - x, b.y - y))[0];
-
-export function canSee(s, d) {
+export function canSee(s, d, k = 1) {
   const p = s.p; if (p.inDuct || d.stun > 0 || !s.iaOn) return false;
   const dx = p.x - d.x, dy = p.y - d.y, dist = Math.hypot(dx, dy);
-  if (dist > VIEW) return false;
+  if (dist > VIEW * k) return false;
   if (dist > 1.2) { let a = Math.atan2(dy, dx) - d.dir; a = Math.atan2(Math.sin(a), Math.cos(a)); if (Math.abs(a) > FOV) return false; }
   return los(s, d.x, d.y, p.x, p.y);
 }
 
-/** ¿Lo que hace el jugador ahora mismo le parece raro a CUSTODIA? */
 export function suspicious(s) {
-  const room = playerRoom(s);
-  if (s.final) return true;
-  if (s.illegal > 0) return true;
-  if (ROOMS.find((r) => r.id === room)?.restricted) return true;
-  if (isNight(s) && room !== 'dorm') return true;
+  const room = roomAt(s, s.p.x, s.p.y);
+  if (s.final || s.illegal > 0) return true;
+  if (room?.restricted || room?.outside) return true;
+  if (isNight(s) && room?.id !== 'dorm') return true;
   const b = block(s);
-  if (b.room && s.checked && room !== b.room && !s.hazards.length) return true;
+  if (b.room && s.checked && room?.id !== b.room && !s.hazards.length) return true;
   return false;
 }
 
-// ---------- problemas (enemigos) ----------
-const HAZ_KINDS = ['fuego', 'amoniaco', 'chatarra', 'fuga'];
-export function spawnHazard(s, kind = pick(s, HAZ_KINDS), roomId) {
-  const rooms = ROOMS.filter((r) => !r.restricted && r.id !== 'dorm');
-  const r = roomId ? ROOMS.find((x) => x.id === roomId) : pick(s, rooms);
+// ---------- tripulación ----------
+const CREW_LINES = ['¿Escuchaste ese ruido anoche?', 'Extraño la lluvia.', 'Dicen que la IA lee nuestros diarios.', 'Hoy me tocó limpiar filtros. Otra vez.', 'Mi familia no sabe nada de mí.', 'Si necesitas algo, pídemelo.', 'No confío en esos drones.', 'Hay que volver a casa. Como sea.', 'Hice 2 horas de bici. Me duelen las piernas.', '¿Probaste el café rehidratado? Horrible.'];
+function updateCrew(s, dt) {
+  const b = block(s);
+  s.crew.forEach((c, i) => {
+    c.moving = false;
+    const danger = s.hazards.find((h) => h.def.type !== 'front' && Math.hypot(h.x - c.x, h.y - c.y) < 4);
+    if (!c.goal || c.goalBlock !== s.block || c.goalDay !== s.day) {
+      c.goalBlock = s.block; c.goalDay = s.day;
+      if (b.id === 'dormir') { const [bx, by] = s.L.beds[i]; c.goal = [bx + 0.5, by + 0.5]; }
+      else {
+        const r = s.L.rooms.find((x) => x.id === (b.room ?? pick(s, ['comedor', 'lab', 'gimnasio', 'nodo', 'dorm']))) ?? s.L.rooms[0];
+        let gx, gy, tries = 0;
+        do { gx = r.x + Math.floor(rand(s) * r.w); gy = r.y + 1 + Math.floor(rand(s) * (r.h - 1)); tries++; } while (tries < 20 && s.objects.some((o) => o.x === gx && o.y === gy));
+        c.goal = [gx + 0.5, gy + 0.5];
+      }
+    }
+    follow(s, c, c.goal, 2.1, dt, 'd');
+    c.sayT -= dt;
+    if (danger && !c.alarmed) { c.alarmed = true; c.say = pick(s, ['¡Cuidado!', '¡Alerta! ¡Protocolo!', '¿Alguien tiene herramientas?', '¡Aléjate de eso!']); c.sayFor = 3; }
+    if (!danger) c.alarmed = false;
+    if (c.sayT <= 0) { c.sayT = 18 + rand(s) * 25; c.say = pick(s, CREW_LINES); c.sayFor = 4; }
+    if (c.sayFor > 0 && (c.sayFor -= dt) <= 0) c.say = null;
+  });
+}
+
+/** Hablar con un compañero: te pide una pieza y te devuelve un favor. */
+function talk(s, c) {
+  if (!c.want) return flash(s, `${c.name}: "Hoy no necesito nada. ¡Gracias por lo de antes!"`, 'info');
+  if (!has(s, c.want)) return flash(s, `${c.name}: "¿Me consigues ${ITEMS[c.want].name}? Te lo devuelvo con un favor."`, 'info');
+  take(s, c.want); c.want = null; s.stats.favors++;
+  const r = c.reward;
+  if (r === 'conoc') { s.p.conoc = Math.min(100, s.p.conoc + 6); flash(s, `${c.name} te enseñó trucos de ingeniería (+6 conocimiento).`, 'ok'); }
+  else if (r === 'fuerza') { s.p.fuerza = Math.min(100, s.p.fuerza + 6); flash(s, `${c.name} te armó una rutina de ejercicios (+6 fuerza).`, 'ok'); }
+  else { const it = r === 'chip' ? 'chip' : pickWeighted(s, LOOT); if (give(s, it)) flash(s, `${c.name} te dio: ${ITEMS[it].name}.`, 'ok'); }
+  s.alert = Math.max(0, s.alert - 5);
+}
+
+// ---------- problemas-enemigo ----------
+export function spawnHazard(s, kind = pick(s, s.L.hazards), roomId) {
+  const def = HAZARDS[kind];
+  const indoor = s.L.rooms.filter((r) => !r.restricted && !r.outside && r.id !== 'dorm');
+  const byId = (id) => s.L.rooms.find((x) => x.id === id);
+  let r = roomId ? byId(roomId) : def.room ? byId(def.room) : def.outside ? s.L.rooms.find((x) => x.outside) : def.spawn ? byId(def.spawn) : pick(s, indoor);
+  if (!r) r = pick(s, indoor);
   const cx = r.x + Math.floor(rand(s) * r.w), cy = r.y + Math.floor(rand(s) * r.h);
-  let h;
-  if (kind === 'fuego') h = { kind, room: r.id, x: cx + 0.5, y: cy + 0.5, tiles: [idx(cx, cy)], t: 0, vent: true };
-  else if (kind === 'amoniaco') h = { kind, room: r.id, x: cx + 0.5, y: cy + 0.5, life: 150, path: null, repath: 0 };
-  else if (kind === 'chatarra') h = { kind, room: r.id, x: cx + 0.5, y: cy + 0.5, bits: Array.from({ length: 3 }, () => { const a = rand(s) * Math.PI * 2; return { x: cx + 0.5, y: cy + 0.5, vx: Math.cos(a) * 2.4, vy: Math.sin(a) * 2.4, rot: 0 }; }) };
-  else {
-    // la fuga va en un borde de la sala (pegada al casco)
-    const side = Math.floor(rand(s) * 2); const lx = side ? r.x + r.w - 1 : r.x; const ly = r.y + Math.floor(rand(s) * r.h);
-    h = { kind: 'fuga', room: r.id, x: lx + 0.5 + (side ? 0.45 : -0.45), y: ly + 0.5, tres: 200 };
-  }
+  const h = { kind, def, room: r.id, x: cx + 0.5, y: cy + 0.5 };
+  if (def.type === 'spread') Object.assign(h, { tiles: [I(s, cx, cy)], t: 0 });
+  else if (def.type === 'chaser') Object.assign(h, { life: def.life, path: null });
+  else if (def.type === 'bouncer') h.bits = Array.from({ length: 3 }, () => { const a = rand(s) * Math.PI * 2; return { x: cx + 0.5, y: cy + 0.5, vx: Math.cos(a) * 2.4, vy: Math.sin(a) * 2.4, rot: 0 }; });
+  else if (def.type === 'pull') { const side = rand(s) < 0.5; const lx = side ? r.x + r.w - 1 : r.x; h.x = lx + 0.5 + (side ? 0.45 : -0.45); h.y = r.y + Math.floor(rand(s) * r.h) + 0.5; h.tres = def.tres; }
+  else if (def.type === 'front') Object.assign(h, { phase: 'aviso', t: def.warn, x: -2, y: s.L.H / 2 });
+  else if (def.type === 'robot') Object.assign(h, { stun: 0, cd: 0, dir: 0, path: null, chasing: false, goal: null });
   s.hazards.push(h);
-  const names = { fuego: '¡INCENDIO', amoniaco: '¡FUGA DE AMONIACO', chatarra: '¡CHATARRA SUELTA', fuga: '¡DESPRESURIZACIÓN' };
-  const tool = { fuego: 'extintor', amoniaco: 'máscara', chatarra: 'amarra', fuga: 'parche' }[kind];
-  flash(s, `${names[kind]} en ${r.name}! Necesitas: ${tool}. Los drones van para allá: aprovecha.`, 'bad');
+  const tool = def.tool ? `Necesitas: ${ITEMS[def.tool].name}.` : def.type === 'robot' ? 'Inhíbelo (Q) y desármalo con el destornillador.' : def.outside ? 'Métete a la base.' : '';
+  flash(s, def.msg ?? `¡${def.name} en ${r.name}! ${tool}`, 'bad');
   return h;
 }
 
+function spreadTiles(s, h) {
+  const from = pick(s, h.tiles); const fx = from % s.L.W, fy = (from / s.L.W) | 0;
+  const [dx, dy] = pick(s, N4); const nx = fx + dx, ny = fy + dy;
+  if (!walkable(s, nx, ny, 'gas')) return;
+  if (h.def.sameRoom && roomIdAt(s, nx, ny) !== h.room) return;
+  const n = I(s, nx, ny); if (!h.tiles.includes(n)) h.tiles.push(n);
+}
+export const onTiles = (s, h, x, y, r = 0.9) => !!h.tiles?.some((t) => Math.hypot((t % s.L.W) + 0.5 - x, ((t / s.L.W) | 0) + 0.5 - y) < r);
+function slowHere(s) { return !s.p.inDuct && s.hazards.some((h) => h.def.type === 'spread' && h.def.slow && onTiles(s, h, s.p.x, s.p.y, 0.7)); }
+
 function updateHazards(s, dt, dm) {
   const p = s.p;
+  const kill = (h) => s.hazards.splice(s.hazards.indexOf(h), 1);
   for (const h of [...s.hazards]) {
+    const def = h.def;
     const near = (x, y, r) => !p.inDuct && Math.hypot(p.x - x, p.y - y) < r;
-    if (h.kind === 'fuego') {
-      h.t += dt;
-      if (h.t > (h.vent ? 1.6 : 4.5)) {
-        h.t = 0; const from = pick(s, h.tiles); const fx = from % W, fy = (from / W) | 0;
-        const [dx, dy] = pick(s, [[1, 0], [-1, 0], [0, 1], [0, -1]]); const n = idx(fx + dx, fy + dy);
-        if (roomIdAt(s, fx + dx, fy + dy) === h.room && !h.tiles.includes(n)) h.tiles.push(n);
-      }
-      const r = ROOMS.find((x) => x.id === h.room);
-      if (h.tiles.length > r.w * r.h * 0.6) { s.hazards.splice(s.hazards.indexOf(h), 1); s.integ -= 15; flash(s, `El incendio consumió el oxígeno de ${r.name} y se apagó solo… pero dañó la estación (−15).`, 'bad'); continue; }
-      s.integ -= h.tiles.length * 0.004 * dm;
-      if (h.tiles.some((t) => near((t % W) + 0.5, ((t / W) | 0) + 0.5, 0.9))) { p.salud -= 10 * dt; p.hit = 0.2; }
-    } else if (h.kind === 'amoniaco') {
+    if (def.type === 'spread') {
+      h.t += dt; if (h.t > def.rate) { h.t = 0; spreadTiles(s, h); }
+      const r = s.L.rooms.find((x) => x.id === h.room);
+      if (h.tiles.length > r.w * r.h * def.maxFrac) { kill(h); s.integ -= def.loss; flash(s, `${def.name}: se perdió ${r.name} por un tiempo (−${def.loss} de integridad).`, 'bad'); continue; }
+      s.integ -= h.tiles.length * 0.003 * dm;
+      if (def.dmg && !p.inDuct && onTiles(s, h, p.x, p.y)) { p[def.stat] = Math.max(def.stat === 'salud' ? -1 : 0, p[def.stat] - def.dmg * dt); p.hit = 0.2; }
+    } else if (def.type === 'chaser') {
       h.life -= dt;
-      if (h.life <= 0) { s.hazards.splice(s.hazards.indexOf(h), 1); say(s, 'La nube de amoniaco se disipó sola. La estación quedó dañada.', 'warn'); s.integ -= 6; continue; }
-      h.repath -= dt;
-      if (!h.path || h.repath <= 0) { h.path = (p.inDuct ? null : path(s, h.x, h.y, p.x, p.y, 'gas')) ?? []; h.repath = 0.8; }
-      const nx = h.path[0];
-      if (nx) { const dx = nx[0] + 0.5 - h.x, dy = nx[1] + 0.5 - h.y, d = Math.hypot(dx, dy); if (d < 0.1) h.path.shift(); else { h.x += dx / d * 0.95 * dt; h.y += dy / d * 0.95 * dt; } }
-      s.integ -= 0.02 * dm;
-      if (near(h.x, h.y, 1.5) && !has(s, 'mascara')) { p.salud -= 7 * dt; p.hit = 0.2; }
-    } else if (h.kind === 'chatarra') {
+      if (h.life <= 0) { kill(h); say(s, `${def.name}: se disipó solo.`, 'warn'); if (!def.outside) s.integ -= 5; continue; }
+      const chase = !p.inDuct && !(def.outside && !isOutside(s));
+      if (chase) { h.repath = (h.repath ?? 0) - dt; if (!h.path || h.repath <= 0) { h.path = path(s, h.x, h.y, p.x, p.y, 'gas', def.outside ? s.L.rooms.filter((r) => !r.outside).map((r) => r.id) : null) ?? []; h.repath = 0.8; } }
+      const nx = chase ? h.path?.[0] : null;
+      if (nx) { const dx = nx[0] + 0.5 - h.x, dy = nx[1] + 0.5 - h.y, d = Math.hypot(dx, dy); if (d < 0.1) h.path.shift(); else { h.x += dx / d * def.speed * dt; h.y += dy / d * def.speed * dt; } }
+      if (!def.outside) s.integ -= 0.02 * dm;
+      if (near(h.x, h.y, 1.5) && !(def.immune && has(s, def.immune))) {
+        p.salud -= def.dmg * dt; p.hit = 0.2;
+        if (def.knock) { const d = Math.hypot(p.x - h.x, p.y - h.y) || 1; moveBody(s, p, (p.x - h.x) / d * 3 * dt, (p.y - h.y) / d * 3 * dt, 0.28, 'p'); }
+      }
+    } else if (def.type === 'bouncer') {
       for (const b of h.bits) {
         b.rot += dt * 4;
         const nx = b.x + b.vx * dt, ny = b.y + b.vy * dt;
@@ -354,43 +411,69 @@ function updateHazards(s, dt, dm) {
         if (near(b.x, b.y, 0.6) && p.hit <= 0) {
           p.salud -= 10; p.hit = 0.8; const d = Math.hypot(p.x - b.x, p.y - b.y) || 1;
           moveBody(s, p, (p.x - b.x) / d * 0.8, (p.y - b.y) / d * 0.8, 0.28, 'p');
-          s.noise = { x: b.x, y: b.y, t: 6 }; say(s, '¡Te golpeó la chatarra! El ruido atrajo a un dron.', 'warn');
+          s.noise = { x: b.x, y: b.y, t: 6 }; say(s, '¡Te golpeó la chatarra! El ruido atrajo vigilancia.', 'warn');
         }
       }
       s.integ -= 0.01 * dm;
-    } else if (h.kind === 'fuga') {
-      h.tres -= dt;
-      s.integ -= 0.05 * dm;
+    } else if (def.type === 'pull') {
+      h.tres -= dt; s.integ -= 0.05 * dm;
       const d = Math.hypot(h.x - p.x, h.y - p.y);
       if (!p.inDuct && d < 5 && d > 0.6) moveBody(s, p, (h.x - p.x) / d * 1.6 * (1 - d / 5) * dt, (h.y - p.y) / d * 1.6 * (1 - d / 5) * dt, 0.28, 'p');
-      if (h.tres <= 0) { s.hazards.splice(s.hazards.indexOf(h), 1); s.integ -= 30; flash(s, `Se acabó el tiempo: las escotillas de emergencia sellaron ${roomName(h.room)}. La estación perdió mucho aire (−30).`, 'bad'); }
+      if (h.tres <= 0) { kill(h); s.integ -= 30; flash(s, `Se acabó el tiempo: las escotillas de emergencia sellaron ${roomName(s, h.room)}. Se perdió mucho aire (−30).`, 'bad'); }
+    } else if (def.type === 'front') {
+      if (h.phase === 'aviso') { h.t -= dt; if (h.t <= 0) { h.phase = 'barre'; say(s, `¡${def.name} llegó!`, 'bad'); } continue; }
+      h.x += def.speed * dt;
+      if (h.x - def.width > s.L.W) { kill(h); s.stats.solved++; flash(s, `${def.name}: ya pasó. Sobreviviste.`, 'ok'); continue; }
+      const inBand = p.x < h.x && p.x > h.x - def.width;
+      const room = roomAt(s, p.x, p.y);
+      if (inBand && !p.inDuct && (def.outsideOnly ? room?.outside : !(def.safe ?? []).includes(room?.id))) { p.salud -= def.dmg * dt; p.hit = 0.2; }
+      if (def.safe) s.crew.forEach((c, i) => { const r = s.L.rooms.find((x) => x.id === def.safe[0]); c.goal = [r.x + 1.5 + i, r.y + 2.5]; c.goalBlock = s.block; c.goalDay = s.day; });
+    } else if (def.type === 'robot') {
+      h.moving = false;
+      if (h.stun > 0) { h.stun -= dt; continue; }
+      h.cd = Math.max(0, h.cd - dt);
+      const dist = Math.hypot(p.x - h.x, p.y - h.y);
+      h.chasing = !p.inDuct && dist < 7 && los(s, h.x, h.y, p.x, p.y);
+      if (h.chasing) h.goal = [p.x, p.y];
+      else if (!h.goal || Math.hypot(h.goal[0] - h.x, h.goal[1] - h.y) < 0.6) {
+        const o = pick(s, s.objects.filter((x) => x.t === 'cajon' && !roomAt(s, x.x, x.y)?.restricted));
+        h.goal = [o.x + 0.5, o.y + 0.5]; h.obj = o;
+      }
+      follow(s, h, h.goal, def.speed * (h.chasing ? 1 : 0.6), dt, 'd');
+      if (!h.chasing && h.obj && def.steals && Math.hypot(h.obj.x + 0.5 - h.x, h.obj.y + 0.5 - h.y) < 1 && h.obj.loot.length) { h.obj.loot = []; say(s, `${def.name} desarmó un cajón en ${roomName(s, roomIdAt(s, h.x, h.y))}.`, 'warn'); }
+      if (dist < 0.75 && h.cd <= 0 && !p.inDuct) { h.cd = 2; p.salud -= def.dmg; p.hit = 0.8; const d = dist || 1; moveBody(s, p, (p.x - h.x) / d * 1.2, (p.y - h.y) / d * 1.2, 0.28, 'p'); say(s, `¡El ${def.name.toLowerCase()} te chocó! (−${def.dmg} salud)`, 'bad'); }
+      s.integ -= 0.01 * dm;
     }
   }
 }
 
 // ---------- tecla E ----------
-const OBJ_RANGE = 1.3;
 export function nearby(s) {
   const p = s.p; const out = [];
-  if (p.inDuct) { GRATES.forEach(([x, y], i) => { if (Math.hypot(x + 0.5 - p.x, y + 0.5 - p.y) < 0.9) out.push({ kind: 'rejilla', i, d: 0 }); }); return out; }
+  if (p.inDuct) { s.L.grates.forEach(([x, y], i) => { if (Math.hypot(x + 0.5 - p.x, y + 0.5 - p.y) < 0.9) out.push({ kind: 'rejilla', i, d: 0 }); }); return out; }
   for (const h of s.hazards) {
-    if (h.kind === 'fuego') { const t = h.tiles.find((t) => Math.hypot((t % W) + 0.5 - p.x, ((t / W) | 0) + 0.5 - p.y) < 1.8); if (t !== undefined) out.push({ kind: 'peligro', h, d: 0.1 }); }
-    else if (h.kind === 'chatarra') { if (h.bits.some((b) => Math.hypot(b.x - p.x, b.y - p.y) < 1.8)) out.push({ kind: 'peligro', h, d: 0.1 }); }
-    else if (Math.hypot(h.x - p.x, h.y - p.y) < 1.8) out.push({ kind: 'peligro', h, d: 0.1 });
+    const def = h.def; let d = Infinity;
+    if (def.type === 'spread') { for (const t of h.tiles) d = Math.min(d, Math.hypot((t % s.L.W) + 0.5 - p.x, ((t / s.L.W) | 0) + 0.5 - p.y)); }
+    else if (def.type === 'bouncer') d = Math.min(...h.bits.map((b) => Math.hypot(b.x - p.x, b.y - p.y)));
+    else if (def.type !== 'front') d = Math.hypot(h.x - p.x, h.y - p.y);
+    if (d < 1.8 && (def.tool || def.type === 'robot')) out.push({ kind: 'peligro', h, d: 0.1 });
   }
-  s.objects.forEach((o) => { const d = Math.hypot(o.x + 0.5 - p.x, o.y + 0.5 - p.y); if (d < OBJ_RANGE) out.push({ kind: 'obj', o, d }); });
-  GRATES.forEach(([x, y], i) => { const d = Math.hypot(x + 0.5 - p.x, y + 0.5 - p.y); if (d < 0.9) out.push({ kind: 'rejilla', i, d: d + 0.05 }); });
+  for (const c of s.crew) { const d = Math.hypot(c.x - p.x, c.y - p.y); if (d < 1.1) out.push({ kind: 'crew', c, d: d - 0.3 }); }
+  s.objects.forEach((o) => { const d = Math.hypot(o.x + 0.5 - p.x, o.y + 0.5 - p.y); if (d < 1.3) out.push({ kind: 'obj', o, d }); });
+  s.L.grates.forEach(([x, y], i) => { const d = Math.hypot(x + 0.5 - p.x, y + 0.5 - p.y); if (d < 0.9) out.push({ kind: 'rejilla', i, d: d + 0.05 }); });
   for (const door of s.map.doors) { const d = Math.min(...door.tiles.map(([x, y]) => Math.hypot(x + 0.5 - p.x, y + 0.5 - p.y))); if (d < 1.4) out.push({ kind: 'puerta', door, d: d + 0.3 }); }
   return out.sort((a, b) => a.d - b.d);
 }
 
-const OBJ_LABEL = { cama: 'Dormir', escondite: 'Escondite', cajon: 'Revisar cajón', mesa: 'Comer', cinta: 'Hacer ejercicio', estudio: 'Estudiar', registro: 'Leer registro', capcom: 'Radio con Houston', planta: 'Trabajar', caja: 'Mover caja', traje: 'Tomar traje', nucleo: 'Núcleo de CUSTODIA', palanca: 'Palanca de desacople', asiento: 'Asiento de la cápsula' };
+const OBJ_LABEL = { cama: 'Dormir', escondite: 'Escondite', cajon: 'Revisar cajón', mesa: 'Comer', cinta: 'Hacer ejercicio', estudio: 'Estudiar', registro: 'Hackear registro', capcom: 'Radio con la Tierra', nucleo: 'Núcleo de la IA' };
 export function label(s, n) {
   if (!n) return '';
-  if (n.kind === 'obj') return OBJ_LABEL[n.o.t];
+  if (n.kind === 'obj') return s.L.labels[n.o.t] ?? OBJ_LABEL[n.o.t];
+  if (n.kind === 'crew') return `Hablar con ${n.c.name}`;
   if (n.kind === 'rejilla') return s.p.inDuct ? 'Salir del conducto' : 'Entrar al conducto';
   if (n.kind === 'puerta') return (n.door.open ? 'Cerrar' : 'Abrir') + ' escotilla';
-  return { fuego: 'Apagar incendio', amoniaco: 'Contener amoniaco', chatarra: 'Amarrar chatarra', fuga: 'Sellar fuga' }[n.h.kind];
+  if (n.h.def.type === 'robot') return n.h.stun > 0 ? 'Desarmar robot' : 'Robot (inhíbelo con Q)';
+  return `Resolver: ${n.h.def.name.toLowerCase()}`;
 }
 
 export function interact(s) {
@@ -398,10 +481,11 @@ export function interact(s) {
   const n = nearby(s)[0]; const p = s.p;
   if (!n) return;
   if (n.kind === 'puerta') return toggleDoor(s, n.door);
+  if (n.kind === 'crew') return talk(s, n.c);
   if (n.kind === 'rejilla') {
     if (!p.inDuct && !s.grates[n.i]) { if (!has(s, 'destornillador')) return flash(s, 'La rejilla está atornillada. Fabrica un destornillador (tornillos + placa).', 'warn'); s.grates[n.i] = true; }
-    const [gx, gy] = GRATES[n.i]; Object.assign(p, { x: gx + 0.5, y: gy + 0.5, inDuct: !p.inDuct }); s.illegal = 1.5;
-    return say(s, p.inDuct ? 'Entraste al conducto de ventilación: los drones no te ven aquí.' : 'Saliste del conducto.', 'info');
+    const [gx, gy] = s.L.grates[n.i]; Object.assign(p, { x: gx + 0.5, y: gy + 0.5, inDuct: !p.inDuct }); s.illegal = 1.5;
+    return say(s, p.inDuct ? 'Entraste al conducto: aquí no te ven.' : 'Saliste del conducto.', 'info');
   }
   if (n.kind === 'peligro') return fixHazard(s, n.h);
   const o = n.o; const b = block(s);
@@ -419,30 +503,30 @@ export function interact(s) {
     case 'cinta': if (p.energia < 10) return flash(s, 'Estás demasiado cansado para entrenar.', 'warn'); return start(s, 'cinta', 5, o);
     case 'estudio': if (p.energia < 6) return flash(s, 'Estás demasiado cansado para estudiar.', 'warn'); return start(s, 'estudio', 5, o);
     case 'registro':
-      if (s.frags[o.frag]) return flash(s, 'Ya leíste este registro.', 'info');
-      if (p.conoc < 15) return flash(s, 'No entiendes el código de CUSTODIA. Necesitas 15 de conocimiento (estudia en el Laboratorio).', 'warn');
-      s.illegal = 3.5; return start(s, 'registro', 3, o);
+      if (s.frags[o.frag]) return flash(s, 'Ya hackeaste este registro.', 'info');
+      if (p.conoc < 15) return flash(s, `No entiendes el código de ${s.L.ai}. Necesitas 15 de conocimiento (estudia en el Laboratorio).`, 'warn');
+      s.illegal = 4; s.pending = { kind: 'codigo', o }; return;
     case 'capcom': return flash(s, hint(s), 'info');
-    case 'planta': if (b.id !== 'trabajo') return flash(s, 'Las plantas se atienden en el turno de trabajo (08:00–12:00).', 'info'); return start(s, 'planta', 2, o);
+    case 'trabajo': if (b.id !== 'trabajo') return flash(s, 'Esto se hace en el turno de trabajo (08:00–12:00).', 'info'); return start(s, 'trabajo', 2, o);
     case 'caja':
-      if (o.used) return flash(s, 'La caja ya está vacía.', 'info');
-      if (p.fuerza < 40) return flash(s, `La caja pesa demasiado. Necesitas 40 de fuerza (tienes ${Math.floor(p.fuerza)}). Entrena en el Gimnasio.`, 'warn');
+      if (o.used) return flash(s, 'Ya lo sacaste.', 'info');
+      if (p.fuerza < 40) return flash(s, `Pesa demasiado. Necesitas 40 de fuerza (tienes ${Math.floor(p.fuerza)}). Entrena en el Gimnasio.`, 'warn');
       s.illegal = 2.5; return start(s, 'caja', 2, o);
-    case 'traje': if (o.used) return flash(s, 'Ya tomaste el traje.', 'info'); if (give(s, 'traje_roto')) { o.used = true; flash(s, 'Tomaste un traje Sokol… tiene un corte. Repáralo con un parche (menú Fabricar).', 'ok'); } return;
+    case 'traje': if (o.used) return flash(s, 'Ya tomaste el traje.', 'info'); if (give(s, 'traje_roto')) { o.used = true; flash(s, 'Tomaste el traje… tiene un corte. Repáralo con un parche (menú Fabricar).', 'ok'); } return;
     case 'nucleo':
-      if (!s.iaOn) return flash(s, 'CUSTODIA está apagada. Silencio total.', 'ok');
+      if (!s.iaOn) return flash(s, `${s.L.ai} está apagada. Silencio total.`, 'ok');
       if (!has(s, 'tarjeta')) return flash(s, 'Hace falta la tarjeta clonada para tocar el núcleo.', 'warn');
       if (p.conoc < 50) return flash(s, 'Necesitas 50 de conocimiento para entender el núcleo.', 'warn');
       s.pending = { kind: 'protocolo', id: 'ia' }; return;
     case 'palanca':
-      if (!s.final) return flash(s, 'Palanca de desacople manual de la Soyuz. Solo sirve al momento de irse.', 'info');
-      if (s.final.lever) return flash(s, '¡Ya está suelta! Corre a la cápsula.', 'ok');
-      if (!has(s, 'llave')) return flash(s, 'Necesitas la llave de desacople.', 'warn');
-      s.pending = { kind: 'protocolo', id: 'desacople' }; return;
+      if (!s.final) return flash(s, `${s.L.labels.palanca}. Solo sirve al momento de irse.`, 'info');
+      if (s.final.lever) return flash(s, `¡Listo! Corre a: ${s.L.labels.asiento}.`, 'ok');
+      if (!has(s, 'llave')) return flash(s, `Necesitas: ${itemName(s, 'llave')}.`, 'warn');
+      s.pending = { kind: 'protocolo', id: s.L.finalProto }; return;
     case 'asiento':
       if (s.final?.lever) return win(s);
-      if (s.final) return flash(s, 'Primero suelta la palanca de desacople en el Nodo central.', 'warn');
-      if (!planDone(s)) return flash(s, 'Te falta: ' + PLAN.filter((x) => !has(s, x.id)).map((x) => x.name).join(', ') + '.', 'warn');
+      if (s.final) return flash(s, `Primero ve a la ${s.L.labels.palanca} (${roomName(s, 'nodo')}).`, 'warn');
+      if (!planDone(s)) return flash(s, 'Te falta: ' + PLAN_IDS.filter((x) => !has(s, x)).map((x) => itemName(s, x)).join(', ') + '.', 'warn');
       return startFinal(s);
   }
 }
@@ -456,97 +540,108 @@ function finishAction(s, a) {
     const got = []; while (o.loot.length && p.inv.length < capacity(s)) { const it = o.loot.shift(); p.inv.push(it); got.push(ITEMS[it].name); }
     if (got.length) say(s, 'Encontraste: ' + got.join(', ') + '.', 'ok'); else flash(s, 'Llevas las manos llenas.', 'warn');
   } else if (a.kind === 'cinta') { p.fuerza = Math.min(100, p.fuerza + 2); p.energia = Math.max(0, p.energia - 7); say(s, `Entrenaste. Fuerza ${Math.floor(p.fuerza)}.`, 'ok'); }
-  else if (a.kind === 'estudio') { p.conoc = Math.min(100, p.conoc + 2); p.energia = Math.max(0, p.energia - 6); say(s, `Estudiaste manuales de la estación. Conocimiento ${Math.floor(p.conoc)}.`, 'ok'); }
-  else if (a.kind === 'registro') {
-    s.frags[o.frag] = true; const n = s.frags.filter(Boolean).length;
-    say(s, `Registro de CUSTODIA leído (${n}/3).`, 'ok');
-    if (n === 3) { if (give(s, 'codigo')) flash(s, '¡Armaste el CÓDIGO DE LA CÁPSULA con los 3 registros!', 'ok'); else s.frags[o.frag] = false; }
-  } else if (a.kind === 'planta') {
-    s.worked++; if (s.worked % 2 === 0 && p.inv.length < capacity(s)) { const it = pickWeighted(s, LOOT); p.inv.push(it); say(s, `Buen trabajo. En el invernadero encontraste: ${ITEMS[it].name}.`, 'ok'); } else say(s, 'Regaste las plantas.', 'ok');
-  } else if (a.kind === 'caja') { if (give(s, 'celda')) { o.used = true; flash(s, '¡Moviste la caja! Ahí estaba el COMBUSTIBLE de la cápsula.', 'ok'); } }
+  else if (a.kind === 'estudio') { p.conoc = Math.min(100, p.conoc + 2); p.energia = Math.max(0, p.energia - 6); say(s, `Estudiaste manuales. Conocimiento ${Math.floor(p.conoc)}.`, 'ok'); }
+  else if (a.kind === 'trabajo') { s.worked++; if (s.worked % 2 === 0 && p.inv.length < capacity(s)) { const it = pickWeighted(s, LOOT); p.inv.push(it); say(s, `Buen trabajo. Encontraste: ${ITEMS[it].name}.`, 'ok'); } else say(s, 'Trabajaste un rato.', 'ok'); }
+  else if (a.kind === 'caja') { if (give(s, 'celda')) { o.used = true; flash(s, `¡Conseguiste: ${itemName(s, 'celda').toUpperCase()}!`, 'ok'); } }
+}
+
+/** Resultado del minijuego de hackeo (memoria de código). */
+export function resolveCodigo(s, ok) {
+  const pd = s.pending; s.pending = null; if (!pd) return;
+  if (!ok) return raise(s, 10, 'Detecté un intento de acceso a mis registros.');
+  s.frags[pd.o.frag] = true; const n = s.frags.filter(Boolean).length;
+  say(s, `Registro de ${s.L.ai} hackeado (${n}/3).`, 'ok');
+  if (n === 3) { if (give(s, 'codigo')) flash(s, `¡Armaste el ${itemName(s, 'codigo').toUpperCase()} con los 3 registros!`, 'ok'); else s.frags[pd.o.frag] = false; }
 }
 
 function toggleDoor(s, d) {
-  if (!d.open && d.lock && !has(s, d.lock) && !(d.lock === 'tarjeta' && !s.iaOn)) return flash(s, d.lock === 'tarjeta' ? 'Escotilla con tarjeta. Fabrica una tarjeta clonada… o busca otro camino (los conductos).' : 'La cápsula pide un código. Lee los 3 registros de CUSTODIA.', 'warn');
+  if (!d.open && d.lock && !has(s, d.lock) && !(d.lock === 'tarjeta' && !s.iaOn)) return flash(s, d.lock === 'tarjeta' ? 'Escotilla con tarjeta. Fabrica una tarjeta clonada… o busca otro camino (conductos).' : `Pide un código. Hackea los 3 registros de ${s.L.ai}.`, 'warn');
   d.open = !d.open;
-  // Las dos escotillas del mismo pasillo se mueven juntas (más fácil de entender).
 }
 
 function fixHazard(s, h) {
-  const need = { fuego: 'extintor', amoniaco: 'mascara', chatarra: 'amarra', fuga: 'parche' }[h.kind];
-  if (!has(s, need)) return flash(s, `Necesitas: ${ITEMS[need].name}. Fabrícalo (tecla C).`, 'warn');
-  if (h.kind === 'chatarra') { h.bits = h.bits.filter((b) => Math.hypot(b.x - s.p.x, b.y - s.p.y) >= 1.8); say(s, 'Amarraste la chatarra.', 'ok'); if (!h.bits.length) { s.hazards.splice(s.hazards.indexOf(h), 1); s.stats.solved++; flash(s, 'Chatarra asegurada.', 'ok'); } return; }
-  s.pending = { kind: 'protocolo', id: h.kind, h };
+  const def = h.def;
+  if (def.type === 'robot') {
+    if (h.stun <= 0) return flash(s, 'Primero inhíbelo con Q (inhibidor: batería + chip + cable).', 'warn');
+    if (!has(s, 'destornillador')) return flash(s, 'Necesitas un destornillador para desarmarlo.', 'warn');
+    s.pending = { kind: 'cables', h }; return;
+  }
+  if (!has(s, def.tool)) return flash(s, `Necesitas: ${ITEMS[def.tool].name}. ${RECIPES.some((r) => r.id === def.tool) ? 'Fabrícalo (tecla C).' : 'Búscalo en los cajones.'}`, 'warn');
+  if (def.type === 'bouncer') { h.bits = h.bits.filter((b) => Math.hypot(b.x - s.p.x, b.y - s.p.y) >= 1.8); say(s, 'Amarraste la chatarra.', 'ok'); if (!h.bits.length) { s.hazards.splice(s.hazards.indexOf(h), 1); s.stats.solved++; flash(s, 'Chatarra asegurada.', 'ok'); } return; }
+  s.pending = def.cables ? { kind: 'cables', h } : { kind: 'protocolo', id: def.proto, h };
 }
 
-/** La interfaz avisa si el protocolo salió bien (pasos en orden a tiempo). */
+/** Resultado de un minijuego (protocolo o cables). */
 export function resolveProtocol(s, ok) {
   const pd = s.pending; s.pending = null; if (!pd) return;
   if (pd.id === 'ia') {
-    if (ok) { s.iaOn = false; s.alert = 0; flash(s, '¡CUSTODIA APAGADA! Los drones caen al piso. Las escotillas con tarjeta se abren.', 'ok'); for (const d of s.map.doors) if (d.lock === 'tarjeta') d.open = true; }
+    if (ok) { s.iaOn = false; s.alert = 0; flash(s, `¡${s.L.ai} APAGADA! La vigilancia cae al piso y las escotillas con tarjeta se abren.`, 'ok'); for (const d of s.map.doors) if (d.lock === 'tarjeta') d.open = true; }
     else raise(s, 30, 'Intento de apagado detectado.');
     return;
   }
-  if (pd.id === 'desacople') {
-    if (ok) { s.final.lever = true; flash(s, '¡DESACOPLE LISTO! Corre al asiento de la cápsula.', 'ok'); } else { s.final.t -= 12; flash(s, 'Te equivocaste de paso. Perdiste 12 s.', 'bad'); }
+  if (pd.kind === 'protocolo' && pd.id === s.L.finalProto) {
+    if (ok) { s.final.lever = true; flash(s, `¡LISTO! Corre a: ${s.L.labels.asiento}.`, 'ok'); } else { s.final.t -= 12; flash(s, 'Te equivocaste de paso. Perdiste 12 s.', 'bad'); }
     return;
   }
-  const h = pd.h; if (!s.hazards.includes(h)) return;
-  const tool = { fuego: 'extintor', amoniaco: 'mascara', fuga: 'parche' }[h.kind];
-  if (ok) { s.hazards.splice(s.hazards.indexOf(h), 1); s.stats.solved++; flash(s, 'Protocolo correcto: problema resuelto. ', 'ok'); if (h.kind !== 'amoniaco') take(s, tool); }
-  else {
-    if (h.kind === 'fuego') { h.tiles = h.tiles.slice(0, Math.ceil(h.tiles.length / 2)); take(s, tool); flash(s, 'Pasos en desorden: el extintor se vació y solo apagaste la mitad.', 'bad'); }
-    else if (h.kind === 'fuga') { h.tres -= 40; flash(s, 'El parche no agarró bien. Perdiste 40 s.', 'bad'); }
-    else { s.p.salud -= 15; flash(s, 'Respiraste amoniaco (−15 salud).', 'bad'); }
+  const h = pd.h; if (!h || !s.hazards.includes(h)) return;
+  const def = h.def;
+  if (def.type === 'robot') {
+    if (ok) { s.hazards.splice(s.hazards.indexOf(h), 1); s.stats.solved++; flash(s, `Desarmaste el ${def.name.toLowerCase()}. Te quedas con un chip.`, 'ok'); give(s, 'chip'); }
+    else { h.stun = 0; flash(s, '¡Cable equivocado! El robot despertó.', 'bad'); }
+    return;
   }
+  if (ok) { s.hazards.splice(s.hazards.indexOf(h), 1); s.stats.solved++; flash(s, `Bien hecho: ${def.name.toLowerCase()} resuelto.`, 'ok'); if (def.tool !== 'mascara') take(s, def.tool); }
+  else if (def.type === 'spread') { h.tiles = h.tiles.slice(0, Math.ceil(h.tiles.length / 2)); take(s, def.tool); flash(s, 'Te salió a medias: gastaste la herramienta y solo resolviste la mitad.', 'bad'); }
+  else if (def.type === 'pull') { h.tres -= 40; flash(s, 'El parche no agarró bien. Perdiste 40 s.', 'bad'); }
+  else { s.p.salud -= 15; flash(s, 'Te salió mal (−15 salud). Inténtalo otra vez.', 'bad'); }
 }
 
-// ---------- fabricar y escondite ----------
+// ---------- fabricar, escondite, inhibidor ----------
 export function canCraft(s, r) {
   const inv = [...s.p.inv];
   for (const n of r.need) { const i = inv.indexOf(n); if (i < 0) return false; inv.splice(i, 1); }
   return s.p.conoc >= r.k;
 }
 export function craft(s, id) {
-  const r = RECIPES.find((x) => x.id === id);
+  const r = recipes(s).find((x) => x.id === id);
   if (!r || !canCraft(s, r)) return false;
   for (const n of r.need) take(s, n);
   s.p.inv.push(id); s.illegal = 2;
-  say(s, `Fabricaste: ${ITEMS[id].name}.`, 'ok');
+  say(s, `Fabricaste: ${itemName(s, id)}.`, 'ok');
   return true;
 }
 export const STASH_MAX = 10;
 export function stashPut(s, i) { if (s.stash.length >= STASH_MAX) return false; const [it] = s.p.inv.splice(i, 1); if (it) s.stash.push(it); return true; }
 export function stashTake(s, i) { if (s.p.inv.length >= capacity(s)) return false; const [it] = s.stash.splice(i, 1); if (it) s.p.inv.push(it); return true; }
 
-/** Usar (tecla Q): inhibidor contra el dron más cercano. */
 export function useQ(s) {
   if (!has(s, 'inhibidor')) return flash(s, 'No tienes inhibidor (batería + chip + cable, 30 de conocimiento).', 'warn');
-  const d = nearestDrone(s, s.p.x, s.p.y);
-  if (!d || Math.hypot(d.x - s.p.x, d.y - s.p.y) > 3) return flash(s, 'No hay ningún dron cerca (3 casillas).', 'warn');
-  d.stun = 20; d.mode = 'patrulla'; take(s, 'inhibidor'); flash(s, 'Dron inhibido por 20 segundos.', 'ok');
+  const targets = [...s.drones.filter((d) => d.stun <= 0 && s.iaOn), ...s.hazards.filter((h) => h.def.type === 'robot' && h.stun <= 0)];
+  const t = nearest(targets, s.p.x, s.p.y);
+  if (!t || Math.hypot(t.x - s.p.x, t.y - s.p.y) > 3) return flash(s, 'No hay nada que inhibir cerca (3 casillas).', 'warn');
+  t.stun = 20; if (t.mode) t.mode = 'patrulla'; take(s, 'inhibidor');
+  flash(s, t.def ? 'Robot inhibido 20 s: ¡desármalo con E!' : 'Vigilancia inhibida por 20 segundos.', 'ok');
 }
 
 export function hint(s) {
-  const miss = PLAN.find((x) => !has(s, x.id));
-  if (!miss) return 'Houston (señal débil): "Tienes todo. Ve al asiento de la Cápsula Soyuz y prepárate para correr."';
-  return `Houston (señal débil): "Te falta ${miss.name}. ${miss.hint}"`;
+  const miss = PLAN_IDS.find((id) => !has(s, id));
+  if (!miss) return `Tierra (señal débil): "Tienes todo. Ve a: ${s.L.labels.asiento}, y prepárate para correr."`;
+  return `Tierra (señal débil): "Te falta ${itemName(s, miss)}. ${s.L.plan[miss].hint}"`;
 }
 
 // ---------- final ----------
 function startFinal(s) {
-  s.final = { t: s.iaOn ? 75 : 120, lever: false, doorT: 0 };
-  flash(s, s.iaOn ? '¡CUSTODIA TE DESCUBRIÓ! 75 s: ve al Nodo central, suelta la palanca de desacople y vuelve al asiento.' : 'Con CUSTODIA apagada vas tranquilo: suelta la palanca del Nodo central y vuelve.', 'bad');
+  s.final = { t: s.iaOn ? s.L.finalTime : s.L.finalTime + 45, lever: false, doorT: 0 };
+  flash(s, s.iaOn ? `¡${s.L.ai} TE DESCUBRIÓ! ${s.final.t} s: ve a la ${s.L.labels.palanca} (${roomName(s, 'nodo')}) y vuelve.` : `Con ${s.L.ai} apagada vas más tranquilo: ve a la ${s.L.labels.palanca} y vuelve.`, 'bad');
 }
 function updateFinal(s, dt) {
   const f = s.final; f.t -= dt;
-  if (s.iaOn) { f.doorT += dt; if (f.doorT > 5) { f.doorT = 0; const open = s.map.doors.filter((d) => d.open && !d.lock); if (open.length) { const d = pick(s, open); d.open = false; say(s, `CUSTODIA cerró una escotilla hacia ${roomName(d.room)}.`, 'ia'); } } }
-  if (f.t <= 0) end(s, false, 'Cápsula sellada', 'Se acabó el tiempo: CUSTODIA bloqueó la cápsula para siempre.');
+  if (s.iaOn) { f.doorT += dt; if (f.doorT > 5) { f.doorT = 0; const open = s.map.doors.filter((d) => d.open && !d.lock); if (open.length) { const d = pick(s, open); d.open = false; say(s, `${s.L.ai} cerró una escotilla hacia ${roomName(s, d.room)}.`, 'ia'); } } }
+  if (f.t <= 0) end(s, false, 'Sin salida', `Se acabó el tiempo: ${s.L.ai} bloqueó la nave para siempre.`);
 }
 function win(s) {
   let stars = 1; if (!s.iaOn) stars++; if (s.alert < 50 && s.integ >= 50) stars++;
-  const title = !s.iaOn ? 'Estación recuperada' : s.alert < 50 ? 'Regreso silencioso' : 'Por los pelos';
-  const text = !s.iaOn ? 'Apagaste a CUSTODIA, liberaste a la tripulación y volviste a la Tierra en la Soyuz.' : s.alert < 50 ? 'CUSTODIA ni se enteró hasta el último minuto. Aterrizaste en Kazajistán.' : 'Con las alarmas sonando, la Soyuz se soltó justo a tiempo.';
-  end(s, true, title, `${text} Día ${s.day}, ${clock(s.min)}.`, stars);
+  const k = !s.iaOn ? 0 : s.alert < 50 ? 1 : 2;
+  end(s, true, ['Base recuperada', 'Regreso silencioso', 'Por los pelos'][k], `${s.L.win[k]} Día ${s.day}, ${clock(s.min)}.`, stars);
 }
 function end(s, won, title, text, stars = 0) { if (!s.over) s.over = { won, title, text, stars }; }

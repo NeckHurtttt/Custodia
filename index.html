@@ -17,20 +17,21 @@
 </header>
 <main class="juego">
   <section class="pantalla">
-    <canvas id="lienzo" width="704" height="416"></canvas>
+    <canvas id="lienzo" width="832" height="468"></canvas>
     <div id="aviso" hidden></div>
   </section>
   <aside class="panel">
     <div class="caja">
-      <h3>CUSTODIA · ALERTA</h3>
+      <h3 id="t-alerta">IA · ALERTA</h3>
       <div class="medidor alerta"><i id="m-alerta"></i></div>
-      <h3>INTEGRIDAD DE LA ESTACIÓN</h3>
+      <h3>INTEGRIDAD DE LA BASE</h3>
       <div class="medidor integ"><i id="m-integ"></i></div>
     </div>
     <div class="caja stats" id="stats"></div>
     <div class="caja"><h3>INVENTARIO <small id="cap"></small></h3><div id="inv" class="inv"></div>
       <div class="botones"><button id="btn-fabricar">[C] FABRICAR</button><button id="btn-usar">[Q] INHIBIR</button></div></div>
     <div class="caja"><h3>PLAN DE REGRESO</h3><ul id="plan" class="plan"></ul></div>
+    <div class="caja"><h3>TRIPULACIÓN</h3><ul id="crew" class="crew"></ul></div>
     <div class="caja"><h3>REGISTRO</h3><ul id="log" class="log"></ul></div>
   </aside>
 </main>

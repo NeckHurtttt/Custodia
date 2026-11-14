@@ -8,20 +8,25 @@ Versión aparte de [LIFELINE](https://github.com/NeckHurtttt/Lifeline) para comp
 **Jugar:** https://neckhurtttt.github.io/Custodia/
 
 ## Cómo se juega
-- **Rutina:** pase de lista con el CAPCOM, comidas, turno en el invernadero, 2 h de ejercicio (como en la ISS), tiempo libre y luces apagadas. Si faltas, sube la alerta de CUSTODIA.
-- **Mejora:** la cinta del gimnasio sube la fuerza (cargas más y mueves cajas pesadas); las terminales del laboratorio suben el conocimiento (desbloquean recetas).
-- **Fabrica** herramientas con piezas de los cajones: destornillador, amarra, parche, extintor (PFE), máscara (PBA), inhibidor, tarjeta clonada, llave de desacople.
-- **Drones:** ven en un cono. Si te ven donde no debes, te persiguen. Los conductos de ventilación los esquivan.
-- **Escondite:** guarda ahí tus herramientas; en el pase de lista te revisan.
-- **Problemas-enemigo** que se mueven: incendio que se extiende, nube de amoniaco que te sigue, chatarra que rebota y fuga de aire que te jala. Se resuelven con **protocolos reales de la NASA** (pasos en orden, contra reloj).
-- **Plan de regreso:** código de la cápsula, combustible, traje Sokol y llave de desacople. Después, la huida: 75 s para soltar la palanca y volver a la Soyuz.
-- **Finales:** regreso silencioso, por los pelos, o apagar a CUSTODIA y recuperar la estación (3 estrellas).
+- **Rutina:** pase de lista, comidas, turno de trabajo, 2 h de ejercicio (como en la ISS), tiempo libre y luces apagadas. Si faltas, sube la alerta de la IA. Una flecha te dice a dónde ir.
+- **Mejora:** la cinta del gimnasio sube la fuerza; las terminales del laboratorio, el conocimiento (desbloquea recetas).
+- **Tripulación viva:** 3 compañeros siguen la rutina, hablan y te piden piezas; si los ayudas te devuelven favores.
+- **Fabrica** herramientas con lo que hay en los cajones (13 recetas, según el destino).
+- **Vigilancia:** drones/vigías con cono de visión. Los conductos de ventilación los esquivan. Escondite para tus cosas.
+- **Minijuegos:** protocolos NASA (pasos en orden contra reloj), hackeo de registros (memoria) y cables (robots, energía).
+- **Plan de regreso:** código, combustible, traje y llave. Después, la huida final contra reloj.
+- **Finales:** regreso silencioso, por los pelos, o apagar a la IA (3 estrellas).
 
-Controles: `WASD`/flechas · `E` usar · `C` fabricar · `Q` inhibidor · `P` pausa. En el teléfono aparecen botones.
+## Destinos y sus 5 problemas-enemigo
+| | IA | Problemas que se mueven |
+|---|---|---|
+| 🛰️ **Estación** | CUSTODIA | drones, incendio que se extiende, nube de amoniaco, chatarra que rebota, fuga que te jala |
+| 🌑 **Luna** (Shackleton) | SELENE | tormenta solar (corre al refugio), remolino de polvo, rover descontrolado, grieta por temblor, frío de la noche lunar |
+| 🔴 **Marte** (Jezero) | ARES | diablo de polvo, plaga del invernadero, perclorato tóxico, robot fallado que desarma cajones, tormenta global |
 
-## Destinos
-- 🛰️ **Estación** — jugable.
-- 🌑 **Luna** y 🔴 **Marte** — próximamente (radiación, polvo, rover descontrolado, tormenta global…).
+En Luna y Marte hay **superficie**: sin traje se acaba el oxígeno en segundos.
+
+Controles: `WASD`/flechas · `E` usar/hablar · `C` fabricar · `Q` inhibidor · `P` pausa. En el teléfono aparecen botones.
 
 ## Técnica
 HTML + JavaScript sin dependencias. `src/core.js` es la lógica (sin pantalla) y tiene pruebas: `npm test`.
