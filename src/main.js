@@ -1,5 +1,5 @@
 // Pantalla, controles y menús de LIFELINE: Rutina. Mundo en pixel art con cámara que sigue al jugador.
-import { ITEMS, PROTOCOLS } from './common.js';
+import { ITEMS, PROTOCOLS, DIFS } from './common.js';
 import { LOCS } from './locs.js';
 import * as G from './core.js';
 import { VILLAINS } from './villains.js';
@@ -17,6 +17,8 @@ const cam = { x: 0, y: 0 };
 const SKEY = (loc) => `lfr.${loc}`;
 function save() { if (!s || s.over) return; try { localStorage.setItem(SKEY(s.loc), G.serialize(s)); } catch { /* sin almacenamiento */ } }
 function load(loc) { try { const raw = localStorage.getItem(SKEY(loc)); return raw ? G.revive(JSON.parse(raw)) : null; } catch { return null; } }
+const getDif = () => { try { return DIFS[localStorage.getItem('lfr.dif')] ? localStorage.getItem('lfr.dif') : 'normal'; } catch { return 'normal'; } };
+const setDif = (d) => { try { localStorage.setItem('lfr.dif', d); } catch { /* nada */ } };
 const clearSave = (loc) => { try { localStorage.removeItem(SKEY(loc)); } catch { /* nada */ } };
 const best = (loc) => { try { return +localStorage.getItem(`lfr.best.${loc}`) || 0; } catch { return 0; } };
 const setBest = (loc, n) => { try { if (n > best(loc)) localStorage.setItem(`lfr.best.${loc}`, n); } catch { /* nada */ } };
@@ -439,7 +441,7 @@ function bar(v, low = 25) { return `<div class="barrita ${v < low ? 'bajo' : ''}
 function slot(it) { const d = ITEMS[it]; return `<div class="slot ${d.plan ? 'plan' : d.tool ? 'tool' : ''}" title="${G.itemName(s, it)}${d.info ? ' — ' + d.info : ''}">${icon(it)}</div>`; }
 function hud() {
   const p = s.p; const b = G.block(s); const L = s.L;
-  $('dia').textContent = `${L.icon} DÍA ${s.day}/${G.DAYS}`;
+  $('dia').textContent = `${L.icon} DÍA ${s.day}/${G.DAYS} · ${G.dif(s).name.toUpperCase()}`;
   $('reloj').textContent = G.clock(s.min);
   const late = b.room && s.checked && G.playerRoom(s) !== b.room;
   $('bloque').textContent = b.room ? `${b.name.toUpperCase()} → ${G.roomName(s, b.room)}` : b.name.toUpperCase();
@@ -493,10 +495,12 @@ function titleScreen() {
     <p style="color:var(--dim)">UN JUEGO DE #LosTiraVida · basado en LIFELINE</p>
     <div class="grande">LIFELINE<b>:RUTINA</b></div>
     <p>Cumple la rutina, esquiva a la IA y prepara en secreto tu regreso a la Tierra.</p>
+    <div class="dificultad">${Object.entries(DIFS).map(([k, d]) => `<button data-dif="${k}" class="${k === getDif() ? 'on' : ''}" title="${d.desc}">${d.name.toUpperCase()}</button>`).join('')}<small>${DIFS[getDif()].desc}</small></div>
     <div class="destinos">${cards}</div>
     <div class="fila" style="justify-content:center"><button id="t-ayuda">? CÓMO SE JUEGA</button></div>
   </div>`);
-  $('ventana').querySelectorAll('[data-loc]').forEach((b) => (b.onclick = () => { M.start(); clearSave(b.dataset.loc); s = G.newGame(b.dataset.loc); base = null; close(); intro(); }));
+  $('ventana').querySelectorAll('[data-loc]').forEach((b) => (b.onclick = () => { M.start(); clearSave(b.dataset.loc); s = G.newGame(b.dataset.loc, undefined, getDif()); base = null; close(); intro(); }));
+  $('ventana').querySelectorAll('[data-dif]').forEach((b) => (b.onclick = () => { setDif(b.dataset.dif); titleScreen(); }));
   $('ventana').querySelectorAll('[data-cont]').forEach((b) => (b.onclick = () => { M.start(); s = load(b.dataset.cont); base = null; close(); }));
   $('t-ayuda').onclick = () => help(titleScreen);
 }
@@ -643,7 +647,7 @@ function endScreen() {
     <p style="font-size:1.4rem;color:var(--amber)">${o.title}</p><p>${o.text}</p>
     <p style="color:var(--dim)">Problemas resueltos: ${s.stats.solved} · favores: ${s.stats.favors} · veces atrapado: ${s.stats.caught} · alerta final: ${Math.round(s.alert)} · integridad: ${Math.max(0, Math.round(s.integ))}</p>
     <div class="fila" style="justify-content:center"><button id="otra">JUGAR OTRA VEZ</button><button id="menu">MENÚ</button></div></div>`);
-  $('otra').onclick = () => { s = G.newGame(s.loc); base = null; close(); intro(); };
+  $('otra').onclick = () => { s = G.newGame(s.loc, undefined, s.dif); base = null; close(); intro(); };
   $('menu').onclick = titleScreen;
 }
 

@@ -1,12 +1,12 @@
 // Lógica de LIFELINE: Rutina (sin pantalla). La interfaz llama a update(), interact(), useQ(), craft()…
-import { ITEMS, LOOT, RECIPES, HAZARDS } from './common.js';
+import { ITEMS, LOOT, RECIPES, HAZARDS, DIFS } from './common.js';
+export const dif = (s) => DIFS[s.dif] ?? DIFS.normal;
 import { LOCS } from './locs.js';
 import * as V from './villains.js';
 
 export const DAYS = 10;
 export const MIN_PER_SEC = 4;          // 1 s real = 4 min de juego
 export const SLEEP_MULT = 10;
-const CHECK_AFTER = 15;                // minutos de gracia para llegar al lugar del horario
 const VIEW = 6.5, FOV = Math.PI / 3.6;   // vigilancia: alcance (casillas) y medio ángulo
 const N4 = [[1, 0], [-1, 0], [0, 1], [0, -1]];
 
@@ -108,10 +108,10 @@ export function follow(s, b, goal, speed, dt, who = 'd') {
 }
 
 // ---------- partida nueva ----------
-export function newGame(loc = 'estacion', seed = Date.now() & 0x7fffffff) {
+export function newGame(loc = 'estacion', seed = Date.now() & 0x7fffffff, difKey = 'normal') {
   const L = LOCS[loc];
   const s = {
-    loc, L, seed, day: 1, min: 340, map: buildMap(L),
+    loc, L, seed, dif: DIFS[difKey] ? difKey : 'normal', grace: 0, day: 1, min: 340, map: buildMap(L),
     p: { x: 3.5, y: 3.5, dir: 0, inDuct: false, hidden: null, crouch: false, noisy: false, dusty: 0, sleep: false, salud: 100, energia: 90, fuerza: 5, conoc: 5, o2: 100, inv: ['cinta', 'tornillos'], hit: 0, walk: 0 },
     stash: [], alert: 0, integ: 100, iaOn: true, frags: [false, false, false], grates: L.grates.map(() => false),
     objects: L.objects.map((o) => ({ ...o, loot: [], used: false })),
@@ -185,7 +185,7 @@ const MAGNET = ['spread', 'chaser', 'pull', 'robot', 'mold'];
 
 export function raise(s, n, why) {
   if (!s.iaOn || s.over || s.final) return;
-  s.alert = Math.min(100, s.alert + n);
+  n *= dif(s).alert; s.alert = Math.min(100, s.alert + n);
   if (why) say(s, `${s.L.ai}: ${why} (+${Math.round(n)} de alerta)`, 'ia');
   if (s.alert >= 100) lockdown(s);
 }
@@ -193,7 +193,7 @@ export function lockdown(s, who) {
   const lost = s.p.inv.filter(isContraband);
   s.p.inv = s.p.inv.filter((i) => !isContraband(i));
   Object.assign(s.p, { x: 3.5, y: 3.5, inDuct: false, hidden: null }); s.p.energia = Math.max(0, s.p.energia - 20);
-  s.alert = 40; s.stats.caught++;
+  s.alert = 40; s.stats.caught++; s.grace = dif(s).grace;
   flash(s, `${who ? who + ' te atrapó. ' : ''}¡BLOQUEO! ${s.L.ai} te encerró en el dormitorio${lost.length ? ' y confiscó: ' + lost.map((i) => itemName(s, i)).join(', ') : ''}. Lo del escondite está a salvo.`, 'bad');
 }
 
@@ -215,14 +215,15 @@ export function update(s, dt, input = { dx: 0, dy: 0 }) {
   if (s.min >= 1440) { newDay(s); if (s.over) return; }
   const bi = s.L.schedule.indexOf(block(s));
   if (bi !== s.block) { s.block = bi; s.blockStart = s.min; s.checked = false; s.ate = false; s.worked = 0; onBlockStart(s); }
-  if (!s.checked && s.min - s.blockStart >= CHECK_AFTER) { s.checked = true; checkBlock(s); }
-  if (s.events.length && s.min >= s.events[0]) { s.events.shift(); spawnHazard(s); }
+  if (!s.checked && s.min - s.blockStart >= dif(s).late) { s.checked = true; checkBlock(s); }
+  if (s.events.length && s.min >= s.events[0]) { if (activeHaz(s) >= dif(s).maxHaz) s.events[0] += 45; else { s.events.shift(); spawnHazard(s); } }
   if (s.min >= 1260 && prevMin < 1260 && s.iaOn) say(s, `${s.L.ai}: ${s.L.aiLines[Math.min(s.day - 1, s.L.aiLines.length - 1)]}`, 'ia');
 
   p.energia = p.sleep ? Math.min(100, p.energia + dm * 0.22) : Math.max(0, p.energia - dm * 0.07);
-  if (p.energia > 30) p.salud = Math.min(100, p.salud + dm * 0.02);
+  if (p.energia > 30) p.salud = Math.min(100, p.salud + dm * dif(s).regen);
   if (s.iaOn) s.alert = Math.max(0, s.alert - dm / 60);
   if (s.illegal > 0) s.illegal -= dt;
+  if (s.grace > 0) s.grace -= dt;
   if (p.hit > 0) p.hit -= dt;
   // oxígeno: afuera sin traje se acaba muy rápido
   if (isOutside(s) && !p.inDuct) { p.o2 = Math.max(0, p.o2 - dt * (has(s, 'traje') ? 0.6 : 14)); if (p.o2 <= 0) { p.salud -= 18 * dt; p.hit = 0.2; } }
@@ -238,7 +239,7 @@ export function update(s, dt, input = { dx: 0, dy: 0 }) {
   }
   if (s.action) { s.action.t += dt; if (s.action.t >= s.action.need) { const a = s.action; s.action = null; finishAction(s, a); } }
 
-  updateHazards(s, dt, dm);
+  const h0 = p.salud, i0 = s.integ; updateHazards(s, dt, dm); if (p.salud < h0) p.salud = h0 - (h0 - p.salud) * dif(s).dmg; if (s.integ < i0) s.integ = i0 - (i0 - s.integ) * dif(s).dmg;
   updateDrones(s, dt);
   updateCrew(s, dt);
   V.updateVillains(s, dt, dm);
@@ -309,7 +310,7 @@ function updateDrones(s, dt) {
     else if (front && d.route !== 0) { const r = s.L.rooms.find((x) => x.id === 'ia'); goal = [r.x + 2.5, r.y + 2.5]; }
     else if (haz && d.route !== 0) goal = [haz.x, haz.y];
     else { const r = s.L.routes[d.route % s.L.routes.length]; let w = r[d.wp % r.length]; if (Math.hypot(w[0] + 0.5 - d.x, w[1] + 0.5 - d.y) < 0.6) { d.wp = (d.wp + 1) % r.length; w = r[d.wp]; } goal = [w[0] + 0.5, w[1] + 0.5]; }
-    follow(s, d, goal, (d.chasing ? 3.4 : d.mode === 'patrulla' ? 2.0 : 2.6) * (s.final ? 1.2 : 1), dt, 'd');
+    follow(s, d, goal, (d.chasing ? 3.4 : d.mode === 'patrulla' ? 2.0 : 2.6) * (s.final ? 1.2 : 1) * dif(s).spd, dt, 'd');
     if (d.mode === 'persigue' && sees) d.dir = Math.atan2(p.y - d.y, p.x - d.x);
     // buscar en el escondite donde te vio meterte
     if (d.mode === 'busca' && Math.hypot(d.target[0] - d.x, d.target[1] - d.y) < 1.3) {
@@ -318,7 +319,7 @@ function updateDrones(s, dt) {
       continue;
     }
     // en cuanto te toca, te atrapa
-    if (d.cd <= 0 && !p.inDuct && !p.hidden && Math.hypot(p.x - d.x, p.y - d.y) < 0.75 && (d.chasing || suspicious(s) || p.inv.some(isContraband))) {
+    if (d.cd <= 0 && !p.inDuct && !p.hidden && Math.hypot(p.x - d.x, p.y - d.y) < 0.75 && (d.chasing || suspicious(s) || p.inv.some(isContraband)) && !(s.grace > 0 && !d.chasing && !s.final && s.illegal <= 0)) {
       d.cd = 4; s.stats.caught++;
       if (s.final) { s.final.t -= 15; p.hit = 0.8; flash(s, `¡Un ${s.L.watcher} te agarró! −15 s.`, 'bad'); d.stun = 3; continue; }
       p.hit = 1; s.shake = 0.5; lockdown(s, `Un ${s.L.watcher}`);
@@ -361,7 +362,7 @@ export const nearest = (arr, x, y) => arr.slice().sort((a, b) => Math.hypot(a.x 
 
 export function canSee(s, d, k = 1) {
   const p = s.p; if (p.inDuct || p.hidden || d.stun > 0 || !s.iaOn) return false;
-  if (p.crouch) k *= 0.7; if (isNight(s)) k *= 0.85;
+  k *= dif(s).see; if (p.crouch) k *= 0.7; if (isNight(s)) k *= 0.85;
   const dx = p.x - d.x, dy = p.y - d.y, dist = Math.hypot(dx, dy);
   if (dist > VIEW * k) return false;
   if (dist > 1.2) { let a = Math.atan2(dy, dx) - d.dir; a = Math.atan2(Math.sin(a), Math.cos(a)); if (Math.abs(a) > FOV) return false; }
@@ -372,9 +373,9 @@ export function suspicious(s) {
   const room = roomAt(s, s.p.x, s.p.y);
   if (s.final || s.illegal > 0) return true;
   if (room?.restricted || room?.outside) return true;
-  if (isNight(s) && room?.id !== 'dorm') return true;
+  if (isNight(s) && room?.id !== 'dorm' && !(dif(s).excuse && emergency(s))) return true;
   const b = block(s);
-  if (b.room && s.checked && room?.id !== b.room && !emergency(s)) return true;
+  if (b.room && s.checked && room?.id !== b.room && !emergency(s) && !(s.grace > 0)) return true;
   return false;
 }
 
@@ -426,6 +427,8 @@ function talk(s, c) {
 }
 
 // ---------- problemas-enemigo ----------
+/** Peligros activos que cuentan para el tope por dificultad (no cámaras ni apagones). */
+export const activeHaz = (s) => s.hazards.filter((h) => !['camera', 'blackout'].includes(h.def.type)).length;
 export function spawnHazard(s, kind = pick(s, s.L.hazards), roomId) {
   const def = HAZARDS[kind];
   const indoor = s.L.rooms.filter((r) => !r.restricted && !r.outside && r.id !== 'dorm');
@@ -509,6 +512,7 @@ function updateHazards(s, dt, dm) {
       if (def.safe) s.crew.forEach((c, i) => { const r = s.L.rooms.find((x) => x.id === def.safe[0]); c.goal = [r.x + 1.5 + i, r.y + 2.5]; c.goalBlock = s.block; c.goalDay = s.day; });
     } else if (def.type === 'robot') {
       h.moving = false;
+      if ((h.age = (h.age ?? 0) + dt) > dif(s).robotLife) { kill(h); say(s, `${def.name} se quedó sin batería y se apagó.`, 'ok'); continue; }
       if (h.stun > 0) { h.stun -= dt; continue; }
       h.cd = Math.max(0, h.cd - dt);
       const dist = Math.hypot(p.x - h.x, p.y - h.y);
@@ -521,9 +525,9 @@ function updateHazards(s, dt, dm) {
         const o = pick(s, s.objects.filter((x) => x.t === 'cajon' && !roomAt(s, x.x, x.y)?.restricted));
         h.goal = [o.x + 0.5, o.y + 0.5]; h.obj = o;
       }
-      follow(s, h, h.goal, def.speed * (h.chasing ? 1 : 0.6), dt, 'd');
+      follow(s, h, h.goal, def.speed * (h.chasing ? 1 : 0.6) * dif(s).spd, dt, 'd');
       if (!h.chasing && h.obj && def.steals && Math.hypot(h.obj.x + 0.5 - h.x, h.obj.y + 0.5 - h.y) < 1 && h.obj.loot.length) { h.obj.loot = []; say(s, `${def.name} desarmó un cajón en ${roomName(s, roomIdAt(s, h.x, h.y))}.`, 'warn'); }
-      if (dist < 0.75 && h.cd <= 0 && !p.inDuct && !p.hidden) { h.cd = 2; p.salud -= def.dmg; if (def.grab) { const it = p.inv.find(isContraband); if (it) { take(s, it); say(s, `${def.name} te arrancó: ${itemName(s, it)}.`, 'bad'); } } p.hit = 0.8; const d = dist || 1; moveBody(s, p, (p.x - h.x) / d * 1.2, (p.y - h.y) / d * 1.2, 0.28, 'p'); say(s, `¡El ${def.name.toLowerCase()} te chocó! (−${def.dmg} salud)`, 'bad'); }
+      if (dist < 0.75 && h.cd <= 0 && !p.inDuct && !p.hidden) { h.cd = 2; h.stun = dif(s).robotStun; p.salud -= def.dmg; if (def.grab) { const it = p.inv.find(isContraband); if (it) { take(s, it); say(s, `${def.name} te arrancó: ${itemName(s, it)}.`, 'bad'); } } p.hit = 0.8; const d = dist || 1; moveBody(s, p, (p.x - h.x) / d * 1.2, (p.y - h.y) / d * 1.2, 0.28, 'p'); say(s, `¡El ${def.name.toLowerCase()} te chocó! (−${def.dmg} salud)`, 'bad'); }
       s.integ -= 0.01 * dm;
     } else if (V.updateHazard(s, h, dt, dm)) kill(h);
   }

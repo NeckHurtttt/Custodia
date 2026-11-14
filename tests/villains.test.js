@@ -69,3 +69,15 @@ test('misión: quedarse junto al objetivo la cumple', () => {
   s.iaOn = false; s.vil.walkers = []; s.p.x = m.x; s.p.y = m.y; G.interact(s);
   run(s, m.need + 1); assert.equal(s.vil.mission, null); assert.ok(s.stats.solved >= 1);
 });
+
+test('dificultad: Fácil ve menos, sortea menos villanos y da gracia tras un bloqueo', async () => {
+  const G = await import('../src/core.js');
+  const f = G.newGame('estacion', 7, 'facil'), t = G.newGame('estacion', 7, 'dificil');
+  assert.equal(f.dif, 'facil'); assert.equal(G.newGame('luna', 1, 'xx').dif, 'normal');
+  assert.ok(G.dif(f).see < G.dif(t).see && G.dif(f).alert < G.dif(t).alert);
+  G.raise(f, 20); G.raise(t, 20); assert.ok(f.alert < t.alert);
+  G.lockdown(f); assert.ok(f.grace > 0);
+  f.day = 5; t.day = 5; (await import('../src/villains.js')).startDay(f); (await import('../src/villains.js')).startDay(t);
+  assert.ok(f.vil.today.length < t.vil.today.length);
+  const r = G.revive(JSON.parse(G.serialize(f))); assert.equal(r.dif, 'facil');
+});

@@ -103,3 +103,10 @@ export const HAZARDS = {
   mutacion: { type: 'spread', name: 'PLANTAS MUTANTES', tool: 'fungicida', proto: 'plaga', rate: 1.7, dmg: 7, stat: 'salud', color: [150, 70, 190], maxFrac: 0.65, loss: 15, sameRoom: true, room: 'inver', slow: true },
   tormenta: { type: 'front', name: 'TORMENTA DE POLVO GLOBAL', warn: 25, speed: 0.55, width: 70, dmg: 11, outsideOnly: true, dark: true, color: [200, 90, 40], msg: 'Se acerca una tormenta de polvo global. Afuera es mortal; adentro se apagan las luces y los drones ven menos.' },
 };
+
+/** Dificultad: multiplicadores sobre vista, velocidad de vigilantes, alerta, daño, villanos por día y gracia tras un castigo (s). */
+export const DIFS = {
+  facil: { name: 'Fácil', desc: 'Para aprender: vigilantes lentos y miopes, menos daño.', see: 0.75, spd: 0.85, alert: 0.55, dmg: 0.5, vil: [1, 1, 2], search: 0.5, grace: 35, late: 30, robotLife: 100, robotStun: 3, maxHaz: 2, excuse: true, regen: 0.06 },
+  normal: { name: 'Normal', desc: 'La experiencia pensada: tenso pero justo.', see: 0.9, spd: 0.93, alert: 0.8, dmg: 0.7, vil: [1, 2, 2], search: 0.75, grace: 25, late: 22, robotLife: 170, robotStun: 2, maxHaz: 3, excuse: true, regen: 0.035 },
+  dificil: { name: 'Terror', desc: 'Sin piedad: ven lejos, corren y cada día llegan 3 amenazas.', see: 1, spd: 1, alert: 1, dmg: 1, vil: [1, 2, 3], search: 1, grace: 12, late: 15, robotLife: Infinity, robotStun: 0, maxHaz: 99, regen: 0.02 },
+};

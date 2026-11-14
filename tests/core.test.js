@@ -97,7 +97,7 @@ test('faltar al pase de lista sube la alerta; en el conducto no te ven', () => {
 test('el pase de lista confisca si llevas 2 o más herramientas', () => {
   const s = fresh(); s.drones = []; s.min = 362; s.block = -1;
   Object.assign(s.p, { x: 19.5, y: 13.5, inv: ['destornillador', 'amarra', 'cinta'] });
-  for (let i = 0; i < 20; i++) G.update(s, 0.25);
+  for (let i = 0; i < 40; i++) G.update(s, 0.25);
   assert.equal(s.p.inv.filter(G.isContraband).length, 1);
 });
 

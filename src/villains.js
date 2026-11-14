@@ -66,7 +66,7 @@ export function startDay(s) {
   const v = s.vil ?? (s.vil = { today: [], walkers: [], events: [], prints: [], gUse: {}, welded: [], mission: null, missions: [], spot: 0 });
   v.walkers = []; v.events = []; v.spot = 0; v.favors0 = s.stats.favors; v.voted = false;
   const all = LOC_VILLAINS[s.loc]; const ia = all[0];
-  const n = s.day < 2 ? 1 : s.day < 4 ? 2 : 3;
+  const n = C.dif(s).vil[s.day < 2 ? 0 : s.day < 4 ? 1 : 2];
   let pool = all.slice(1).filter((id) => !prev.includes(id)); if (pool.length < n) pool = all.slice(1);
   const chosen = [];
   while (chosen.length < n && pool.length) chosen.push(pool.splice(Math.floor(rnd(s) * pool.length), 1)[0]);
@@ -113,7 +113,7 @@ function newSnitch(s, vid) {
 // ---------- cada cuadro ----------
 export function updateVillains(s, dt, dm) {
   const v = s.vil; if (!v) return; const p = s.p;
-  while (v.events.length && s.min >= v.events[0].min) { const e = v.events.shift(); if (e.hz === 'apagon' && !s.iaOn) continue; C.spawnHazard(s, e.hz); sfx(s, 'alarma'); }
+  while (v.events.length && s.min >= v.events[0].min) { if (!['apagon', 'camara', 'cuarentena'].includes(v.events[0].hz) && C.activeHaz(s) >= C.dif(s).maxHaz) { v.events[0].min += 45; break; } const e = v.events.shift(); if (e.hz === 'apagon' && !s.iaOn) continue; C.spawnHazard(s, e.hz); sfx(s, 'alarma'); }
   if (v.missions.length && s.min >= v.missions[0] && !v.mission && !s.final) { v.missions.shift(); newMission(s); }
   if (v.mission) updateMission(s, dt);
   // huellas de polvo
@@ -133,7 +133,7 @@ export function updateVillains(s, dt, dm) {
 
 function sees(s, w, range = 6) {
   const p = s.p; if (p.inDuct || p.hidden) return false;
-  let k = 1; if (p.crouch) k *= 0.7; if (C.isNight(s)) k *= 0.8; if (C.dark(s)) k *= 0.55;
+  let k = C.dif(s).see; if (p.crouch) k *= 0.7; if (C.isNight(s)) k *= 0.8; if (C.dark(s)) k *= 0.55;
   const dx = p.x - w.x, dy = p.y - w.y, d = Math.hypot(dx, dy);
   if (d > range * k) return false;
   if (d > 1.2) { let a = Math.atan2(dy, dx) - w.dir; a = Math.atan2(Math.sin(a), Math.cos(a)); if (Math.abs(a) > 0.9) return false; }
@@ -177,14 +177,14 @@ function updateWalker(s, w, dt) {
     w.look -= dt; w.dir += dt * 2; if (w.look <= 0) { w.mode = 'patrulla'; w.goal = null; } return;
   }
   // revisa escondites al pasar (como en las rondas)
-  if (d.search && p.hidden && !s.pending && w.mode !== 'persigue' && Math.hypot(p.hidden.x - w.x, p.hidden.y - w.y) < 1.4 && w.checked !== p.hidden) { w.checked = p.hidden; if (rnd(s) < d.search) { s.pending = { kind: 'respira', who: w }; sfx(s, 'visto'); return; } }
-  if (w.goal) C.follow(s, w, w.goal, d.speed * (w.chasing ? 1.4 : w.mode === 'investiga' ? 1.1 : 0.75), dt, 'd');
+  if (d.search && p.hidden && !s.pending && w.mode !== 'persigue' && Math.hypot(p.hidden.x - w.x, p.hidden.y - w.y) < 1.4 && w.checked !== p.hidden) { w.checked = p.hidden; if (rnd(s) < d.search * C.dif(s).search) { s.pending = { kind: 'respira', who: w }; sfx(s, 'visto'); return; } }
+  if (w.goal) C.follow(s, w, w.goal, d.speed * (w.chasing ? 1.4 : w.mode === 'investiga' ? 1.1 : 0.75) * C.dif(s).spd, dt, 'd');
   if (w.chasing && see) w.dir = Math.atan2(p.y - w.y, p.x - w.x);
-  if (w.cd <= 0 && !p.inDuct && !p.hidden && Math.hypot(p.x - w.x, p.y - w.y) < 0.75 && (w.chasing || wants(s, w))) caughtBy(s, w);
+  if (w.cd <= 0 && !p.inDuct && !p.hidden && Math.hypot(p.x - w.x, p.y - w.y) < 0.75 && (w.chasing || wants(s, w)) && !(s.grace > 0 && !w.chasing)) caughtBy(s, w);
 }
 
 export function caughtBy(s, w) {
-  const d = VILLAINS[w.vid]; const p = s.p; w.cd = 6; w.mode = 'patrulla'; w.goal = null; s.stats.caught++; p.hit = 1; s.shake = 0.6; sfx(s, 'atrapado');
+  const d = VILLAINS[w.vid]; const p = s.p; w.cd = 6; w.mode = 'patrulla'; w.goal = null; s.stats.caught++; s.grace = C.dif(s).grace; p.hit = 1; s.shake = 0.6; sfx(s, 'atrapado');
   const tools = () => { const lost = p.inv.filter(C.isContraband); p.inv = p.inv.filter((i) => !C.isContraband(i)); return lost.map((i) => C.itemName(s, i)).join(', '); };
   const toDorm = () => Object.assign(p, { x: 3.5, y: 3.5, inDuct: false, hidden: null });
   const skip = (m) => { s.min = Math.min(s.min + m, 1439); };
