@@ -5,7 +5,7 @@
 Versión aparte de [LIFELINE](https://github.com/NeckHurtttt/Lifeline) para comparar: en vez de administrar una misión,
 **eres un astronauta** que vive el día a día de la estación mientras la IA que la controla no quiere dejar volver a nadie.
 
-**Jugar:** https://neckhurtttt.github.io/Lifeline-Rutina/
+**Jugar:** https://neckhurtttt.github.io/Custodia/
 
 ## Cómo se juega
 - **Rutina:** pase de lista con el CAPCOM, comidas, turno en el invernadero, 2 h de ejercicio (como en la ISS), tiempo libre y luces apagadas. Si faltas, sube la alerta de CUSTODIA.
