@@ -158,8 +158,8 @@ export function revive(o) {
   (o.doorsLock ?? []).forEach((v, i) => { if (map.doors[i]) map.doors[i].lock = v; }); delete o.doorsLock;
   return o;
 }
-const NOSAVE = new Set(['busyBy', 'distractT', 'pending', 'who']);
-export function serialize(s) { const { map, L, ...rest } = s; return JSON.stringify({ ...rest, hazards: s.hazards.map(({ def, ...h }) => h), doorsOpen: map.doors.map((d) => d.open), doorsLock: map.doors.map((d) => d.lock) }, (k, v) => (NOSAVE.has(k) ? undefined : v)); }
+const NOSAVE = new Set(['busyBy', 'distractT', 'pending', 'who', 'escort']);
+export function serialize(s) { const { map, L, ...rest } = s; if (s.escort) rest.p = { ...s.p, x: s.escort.dest[0], y: s.escort.dest[1] }; return JSON.stringify({ ...rest, hazards: s.hazards.map(({ def, ...h }) => h), doorsOpen: map.doors.map((d) => d.open), doorsLock: map.doors.map((d) => d.lock) }, (k, v) => (NOSAVE.has(k) ? undefined : v)); }
 
 /** Casilleros para esconderse: uno por sala (menos dormitorio y salas prohibidas). */
 function addLockers(s) {
@@ -212,10 +212,33 @@ export function raise(s, n, why) {
   if (why) say(s, `${s.L.ai}: ${why} (+${Math.round(n)} de alerta)`, 'ia');
   if (s.alert >= 100) lockdown(s);
 }
-export function lockdown(s, who) {
+const nearestBy = (s) => { if (!s.iaOn) return null; let b = null, bd = 1e9; for (const d of s.drones) { const k = Math.hypot(d.x - s.p.x, d.y - s.p.y); if (k < bd) { bd = k; b = d; } } return bd < 14 ? b : null; };
+/** Captura animada: te agarran (1 s) y te llevan caminando hasta (x, y). La lógica del castigo ya se aplicó; esto solo mueve. */
+export function escort(s, x, y, by = null, label = 'Te llevan a tu cuarto') {
+  const p = s.p; const pth = path(s, p.x, p.y, Math.floor(x), Math.floor(y), 'gas') ?? [];
+  const pts = pth.map(([a, b]) => [a + 0.5, b + 0.5]); pts.push([x, y]);
+  if (!pth.length && Math.hypot(x - p.x, y - p.y) > 2) { Object.assign(p, { x, y }); pts.length = 0; }
+  Object.assign(p, { inDuct: false, hidden: null, sleep: false, crouch: false }); s.action = null;
+  s.escort = { p, by, pts, dest: [x, y], t: 0, phase: 'agarre', label };
+  if (!s.sfx.includes('atrapado')) s.sfx.push('atrapado'); s.shake = Math.max(s.shake, 0.6);
+}
+function updateEscort(s, dt) {
+  const e = s.escort; const p = e.p; e.t += dt;
+  if (e.phase === 'agarre') { if (e.by) { e.by.dir = Math.atan2(p.y - e.by.y, p.x - e.by.x); } if (e.t > 1.1) { e.phase = 'lleva'; e.t = 0; } return; }
+  if (e.phase === 'lleva') {
+    let mv = Math.max(6, e.pts.length / 2.5) * dt;
+    while (mv > 0 && e.pts.length) { const [tx, ty] = e.pts[0]; const dx = tx - p.x, dy = ty - p.y, d = Math.hypot(dx, dy); if (d <= mv) { p.x = tx; p.y = ty; e.pts.shift(); mv -= d; } else { p.x += dx / d * mv; p.y += dy / d * mv; p.dir = Math.atan2(dy, dx); mv = 0; } }
+    p.walk += dt;
+    if (e.by) { e.by.x = p.x - Math.cos(p.dir) * 0.85; e.by.y = p.y - Math.sin(p.dir) * 0.85; e.by.dir = p.dir; e.by.moving = true; }
+    if (!e.pts.length || e.t > 12) { Object.assign(p, { x: e.dest[0], y: e.dest[1] }); e.phase = 'suelta'; e.t = 0; }
+    return;
+  }
+  if (e.t > 0.9) { if (e.by) { e.by.path = null; e.by.goal = null; e.by.moving = false; } s.escort = null; }
+}
+export function lockdown(s, who, by) {
   const lost = s.p.inv.filter(isContraband);
   s.p.inv = s.p.inv.filter((i) => !isContraband(i));
-  Object.assign(s.p, { x: 3.5, y: 3.5, inDuct: false, hidden: null }); s.p.energia = Math.max(0, s.p.energia - 20);
+  escort(s, 3.5, 3.5, by ?? nearestBy(s), `${s.L.ai} te lleva al dormitorio`); s.p.energia = Math.max(0, s.p.energia - 20);
   s.alert = 40; s.stats.caught++; s.grace = dif(s).grace;
   flash(s, `${who ? who + ' te atrapó. ' : ''}¡BLOQUEO! ${s.L.ai} te encerró en el dormitorio${lost.length ? ' y confiscó: ' + lost.map((i) => itemName(s, i)).join(', ') : ''}. Lo del escondite está a salvo.`, 'bad');
 }
@@ -224,6 +247,7 @@ export function lockdown(s, who) {
 export function update(s, dt, input = { dx: 0, dy: 0 }) {
   if (s.over || s.pending) return;
   if (s.msg && (s.msg.t -= dt) <= 0) s.msg = null;
+  if (s.escort) { updateEscort(s, dt); return; }
   const p = s.p;
   let moving = Math.abs(input.dx) + Math.abs(input.dy) > 0.1;
   p.crouch = !!input.crouch;
@@ -347,7 +371,7 @@ function updateDrones(s, dt) {
     if (d.cd <= 0 && !p.inDuct && !p.hidden && Math.hypot(p.x - d.x, p.y - d.y) < 0.75 && (d.chasing || suspicious(s) || p.inv.some(isContraband)) && !(s.grace > 0 && !d.chasing && !s.final && s.illegal <= 0)) {
       d.cd = 4; s.stats.caught++;
       if (s.final) { s.final.t -= 15; p.hit = 0.8; flash(s, `¡Un ${s.L.watcher} te agarró! −15 s.`, 'bad'); d.stun = 3; continue; }
-      p.hit = 1; s.shake = 0.5; lockdown(s, `Un ${s.L.watcher}`);
+      p.hit = 1; s.shake = 0.5; lockdown(s, `Un ${s.L.watcher}`, d);
       d.mode = 'patrulla'; d.path = null;
     }
   }
@@ -364,7 +388,7 @@ export function resolveBreath(s, ok) {
   if (ok) { w.mode = 'patrulla'; w.path = null; w.ignore = 8; w.lost = 0; flash(s, 'Contuviste la respiración… se alejó.', 'ok'); return; }
   s.p.hidden = null; s.shake = 0.6;
   if (w.vid) return V.caughtBy(s, w);
-  s.stats.caught++; lockdown(s, `Un ${s.L.watcher} abrió tu escondite y`);
+  s.stats.caught++; lockdown(s, `Un ${s.L.watcher} abrió tu escondite y`, w);
 }
 /** Tecla F: meterse o salir de un escondite (casillero o debajo de una cama). */
 export function toggleHide(s) {

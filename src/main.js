@@ -312,6 +312,14 @@ function draw(t) {
   if (s.action) { const k = s.action.t / s.action.need; R(cx, '#0a0e17', p.x * TS - 12, p.y * TS - 20, 24, 4); R(cx, '#ffc23d', p.x * TS - 12, p.y * TS - 20, 24 * k, 4); }
   else if (n && !p.sleep && !menu) bubble(p.x * TS, p.y * TS - 20, `[E] ${G.label(s, n)}`, '#ffffff');
 
+  // captura: anillo rojo al agarrarte y cadena hasta el que te lleva
+  const es = s.escort;
+  if (es) {
+    const px = es.p.x * TS, py = es.p.y * TS;
+    if (es.phase === 'agarre') { const k = Math.min(1, es.t / 0.35); cx.strokeStyle = `rgba(255,60,60,${1 - es.t / 1.1})`; cx.lineWidth = 2; cx.beginPath(); cx.arc(px, py, 4 + 22 * (1 - k) + 3 * Math.sin(t / 40), 0, 7); cx.stroke(); cx.lineWidth = 1; }
+    if (es.by) { const bx = es.by.x * TS, by = es.by.y * TS; cx.strokeStyle = Math.floor(t / 90) % 2 ? '#ff4b4b' : '#ffc23d'; cx.setLineDash([2, 2]); cx.beginPath(); cx.moveTo(bx, by); cx.lineTo(px, py); cx.stroke(); cx.setLineDash([]); }
+  }
+
   // capa de pantalla (sin cámara)
   cx.setTransform(1, 0, 0, 1, 0, 0);
   arrowToGoal(t);
@@ -333,8 +341,27 @@ function draw(t) {
   if (s.iaOn && s.alert > 70 && hashRand(Math.floor(t / 90)) < (s.alert - 70) / 260) R(cx, 'rgba(0,0,0,.55)', 0, 0, cv.width, cv.height);
   // susto: destello rojo al descubrir tu escondite
   if (scareT > 0) { scareT -= 1 / 60; R(cx, `rgba(160,0,0,${scareT})`, 0, 0, cv.width, cv.height); }
+  escortOverlay(t);
   if (G.isOutside(s) && !p.inDuct) { cx.font = '20px VT323'; cx.fillStyle = p.o2 < 30 ? '#ff4b4b' : '#5ff6ff'; cx.fillText(`O₂ ${Math.ceil(p.o2)}%${G.has(s, 'traje') ? '' : ' · ¡SIN TRAJE!'}`, cv.width / 2, cv.height - 18); }
 }
+
+function escortOverlay(t) {
+  const es = s.escort; if (!es) { escBar = Math.max(0, escBar - 0.08); } else escBar = Math.min(1, escBar + 0.12);
+  if (escBar <= 0) return;
+  const h = Math.round(46 * escBar); R(cx, '#000', 0, 0, cv.width, h); R(cx, '#000', 0, cv.height - h, cv.width, h);
+  if (!es) return;
+  cx.textAlign = 'center';
+  if (es.phase === 'agarre') {
+    const k = es.t / 1.1; R(cx, `rgba(200,0,0,${0.45 * (1 - k)})`, 0, 0, cv.width, cv.height);
+    const sc = 1 + 0.6 * Math.max(0, 1 - es.t * 4); cx.save(); cx.translate(cv.width / 2 + (Math.random() - 0.5) * 8 * (1 - k), cv.height / 2 - 20); cx.scale(sc, sc);
+    cx.font = '64px VT323'; cx.fillStyle = '#000'; cx.fillText('¡ATRAPADO!', 3, 3); cx.fillStyle = Math.floor(t / 80) % 2 ? '#ff3b3b' : '#ffffff'; cx.fillText('¡ATRAPADO!', 0, 0); cx.restore();
+  } else {
+    const dots = '.'.repeat(1 + Math.floor(t / 300) % 3);
+    cx.font = '24px VT323'; cx.fillStyle = '#ff6b6b'; cx.fillText(`${es.label.toUpperCase()}${es.phase === 'lleva' ? dots : ''}`, cv.width / 2, cv.height - h / 2 + 8);
+    cx.font = '18px VT323'; cx.fillStyle = '#9fb0c8'; cx.fillText(es.phase === 'suelta' ? 'Te sueltan. Cuidado: ahora te vigilan más.' : 'No puedes moverte', cv.width / 2, h / 2 + 6);
+  }
+}
+let escBar = 0;
 
 function bubble(x, y, txt, color) {
   const w = Math.min(190, cx.measureText(txt).width + 8);

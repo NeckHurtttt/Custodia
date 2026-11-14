@@ -34,7 +34,9 @@ test('un dron te atrapa en cuanto te toca si llevas herramientas', () => {
   const s = G.newGame('estacion', 5); const d = s.drones[0];
   s.p.inv.push('destornillador'); s.p.x = d.x; s.p.y = d.y; s.min = 600;
   G.update(s, 0.05);
-  assert.equal(s.p.x, 3.5); assert.ok(!G.has(s, 'destornillador'));
+  assert.ok(s.escort, 'empieza la animación de captura'); assert.ok(!G.has(s, 'destornillador'));
+  for (let i = 0; i < 400 && s.escort; i++) G.update(s, 0.05);
+  assert.ok(!s.escort); assert.equal(s.p.x, 3.5); assert.equal(s.p.y, 3.5);
 });
 
 test('escondido no te ven; si te vio entrar, te busca y hay que contener la respiración', () => {

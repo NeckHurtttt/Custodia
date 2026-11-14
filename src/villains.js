@@ -186,14 +186,14 @@ function updateWalker(s, w, dt) {
 export function caughtBy(s, w) {
   const d = VILLAINS[w.vid]; const p = s.p; w.cd = 6; w.mode = 'patrulla'; w.goal = null; s.stats.caught++; s.grace = C.dif(s).grace; p.hit = 1; s.shake = 0.6; sfx(s, 'atrapado');
   const tools = () => { const lost = p.inv.filter(C.isContraband); p.inv = p.inv.filter((i) => !C.isContraband(i)); return lost.map((i) => C.itemName(s, i)).join(', '); };
-  const toDorm = () => Object.assign(p, { x: 3.5, y: 3.5, inDuct: false, hidden: null });
+  const toDorm = (lbl = `${d.name} te lleva a tu cuarto`) => C.escort(s, 3.5, 3.5, w, lbl);
   const skip = (m) => { s.min = Math.min(s.min + m, 1439); };
   switch (d.onCatch) {
     case 'confisca': { const l = tools(); C.raise(s, 10); return C.flash(s, `${d.name} te revisó${l ? ' y te quitó: ' + l : ', pero no llevabas nada'}.`, 'bad'); }
-    case 'enfermeria': toDorm(); skip(150); p.salud = Math.max(p.salud, 85); p.energia = Math.max(p.energia, 70); return C.flash(s, `${d.name} te llevó a la enfermería. Perdiste 2 h y media, pero te curó.`, 'bad');
-    case 'golpe': { p.salud -= 20; const r = room(s, 'esclusa'); Object.assign(p, { x: r.x + 1.5, y: r.y + 2.5 }); C.raise(s, 10); return C.flash(s, `Los mineros te golpearon (−20 salud) y te tiraron a la esclusa.`, 'bad'); }
-    case 'cuarentena': toDorm(); skip(120); p.energia = Math.max(0, p.energia - 10); return C.flash(s, `${d.name}: "Posible contagio." Te pusieron 2 h en cuarentena.`, 'bad');
-    case 'trabajo': { skip(90); p.energia = Math.max(0, p.energia - 20); const b = s.L.schedule.find((x) => x.id === 'trabajo'); const r = room(s, b.room); Object.assign(p, { x: r.x + 1.5, y: r.y + 1.5, inDuct: false, hidden: null }); return C.flash(s, `${d.name} te puso a trabajar 1 h y media extra (−20 energía).`, 'bad'); }
+    case 'enfermeria': toDorm('Te llevan a la enfermería'); skip(150); p.salud = Math.max(p.salud, 85); p.energia = Math.max(p.energia, 70); return C.flash(s, `${d.name} te llevó a la enfermería. Perdiste 2 h y media, pero te curó.`, 'bad');
+    case 'golpe': { p.salud -= 20; const r = room(s, 'esclusa'); C.escort(s, r.x + 1.5, r.y + 2.5, w, 'Te arrastran a la esclusa'); C.raise(s, 10); return C.flash(s, `Los mineros te golpearon (−20 salud) y te tiraron a la esclusa.`, 'bad'); }
+    case 'cuarentena': toDorm('Cuarentena: al dormitorio'); skip(120); p.energia = Math.max(0, p.energia - 10); return C.flash(s, `${d.name}: "Posible contagio." Te pusieron 2 h en cuarentena.`, 'bad');
+    case 'trabajo': { skip(90); p.energia = Math.max(0, p.energia - 20); const b = s.L.schedule.find((x) => x.id === 'trabajo'); const r = room(s, b.room); C.escort(s, r.x + 1.5, r.y + 1.5, w, 'Te llevan a trabajar'); return C.flash(s, `${d.name} te puso a trabajar 1 h y media extra (−20 energía).`, 'bad'); }
     default: { const l = tools(); toDorm(); p.energia = Math.max(0, p.energia - 20); C.raise(s, 15); return C.flash(s, `${d.name} te atrapó y te encerró en el dormitorio${l ? '. Te quitó: ' + l : ''}.`, 'bad'); }
   }
 }
