@@ -8,14 +8,17 @@ const THEMES = {
 let ac = null, master = null, musBus = null, lp = null, delay = null, enabled = true;
 let theme = THEMES.estacion, loc = null, level = 0, night = false, timer = null, step = 0, next = 0;
 let lastSting = 0;
+const MUS_VOL = 2.4;
 const hz = (m) => 440 * 2 ** ((m - 69) / 12);
 
 export function start() {
   try {
     if (!ac) {
       ac = new AudioContext();
-      master = ac.createGain(); master.gain.value = 0.5; master.connect(ac.destination);
-      musBus = ac.createGain(); musBus.gain.value = enabled ? 0.55 : 0;
+      // compresor al final: permite subir mucho el volumen sin que sature
+      const comp = ac.createDynamicsCompressor(); comp.threshold.value = -18; comp.knee.value = 12; comp.ratio.value = 4; comp.connect(ac.destination);
+      master = ac.createGain(); master.gain.value = 1.6 * vol; master.connect(comp);
+      musBus = ac.createGain(); musBus.gain.value = enabled ? MUS_VOL : 0;
       lp = ac.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 1800; lp.Q.value = 0.7;
       delay = ac.createDelay(1); delay.delayTime.value = 0.36; const fb = ac.createGain(); fb.gain.value = 0.35; const wet = ac.createGain(); wet.gain.value = 0.3;
       musBus.connect(lp).connect(master); lp.connect(delay); delay.connect(fb).connect(delay); delay.connect(wet).connect(master);
@@ -25,7 +28,10 @@ export function start() {
   } catch { /* sin audio */ }
 }
 export const on = () => enabled;
-export function toggle() { enabled = !enabled; if (musBus) musBus.gain.setTargetAtTime(enabled ? 0.55 : 0, ac.currentTime, 0.2); try { localStorage.setItem('lfr.music', enabled ? '1' : '0'); } catch { /* nada */ } }
+let vol = 1; try { vol = +(localStorage.getItem('lfr.vol') ?? 1) || 1; } catch { /* nada */ }
+/** Volumen general 0.25..2 (botones − / + en la pausa). */
+export function volume(d = 0) { vol = Math.max(0.25, Math.min(2, Math.round((vol + d) * 4) / 4)); if (master) master.gain.setTargetAtTime(1.6 * vol, ac.currentTime, 0.1); try { localStorage.setItem('lfr.vol', vol); } catch { /* nada */ } return vol; }
+export function toggle() { enabled = !enabled; if (musBus) musBus.gain.setTargetAtTime(enabled ? MUS_VOL : 0, ac.currentTime, 0.2); try { localStorage.setItem('lfr.music', enabled ? '1' : '0'); } catch { /* nada */ } }
 try { enabled = localStorage.getItem('lfr.music') !== '0'; } catch { /* nada */ }
 
 /** Lo llama el bucle del juego cada cuadro. */
@@ -77,6 +83,13 @@ function play(i, t, sx) {
   if (level === 0 && night && pos === 0 && bar % 4 === 3) note(hz(deg(4) + 36), t, 2, 'sine', 0.02);
 }
 
+/** Latido del corazón: lo llama el juego cuando algo te persigue (rate 0..1). */
+let beatNext = 0;
+export function heartbeat(rate) {
+  if (!ac || !enabled || rate <= 0) return; const t = ac.currentTime; if (t < beatNext) return;
+  const gap = 0.95 - rate * 0.55; beatNext = t + gap;
+  for (const [dt, v] of [[0, 0.55], [0.16, 0.38]]) { const o = ac.createOscillator(); const g = ac.createGain(); o.frequency.setValueAtTime(70, t + dt); o.frequency.exponentialRampToValueAtTime(38, t + dt + 0.12); g.gain.setValueAtTime(0.0001, t + dt); g.gain.exponentialRampToValueAtTime(v * (0.4 + rate * 0.6), t + dt + 0.015); g.gain.exponentialRampToValueAtTime(0.0001, t + dt + 0.18); o.connect(g).connect(master); o.start(t + dt); o.stop(t + dt + 0.2); }
+}
 /** Golpes de sonido para momentos de susto. */
 export function sting(kind) {
   if (!ac || !enabled) return; const t = ac.currentTime + 0.01;
@@ -85,5 +98,7 @@ export function sting(kind) {
   else if (kind === 'atrapado') { kick(t, 0.9); for (const f of [hz(theme.root - 12), hz(theme.root - 11)]) note(f, t, 1.4, 'sawtooth', 0.08, master); }
   else if (kind === 'alarma') { const o = ac.createOscillator(); const g = ac.createGain(); o.type = 'square'; o.frequency.setValueAtTime(600, t); for (let k = 0; k < 4; k++) { o.frequency.linearRampToValueAtTime(900, t + k * 0.4 + 0.2); o.frequency.linearRampToValueAtTime(600, t + k * 0.4 + 0.4); } g.gain.setValueAtTime(0.03, t); g.gain.exponentialRampToValueAtTime(0.0001, t + 1.6); o.connect(g).connect(master); o.start(t); o.stop(t + 1.7); }
   else if (kind === 'radio') { noise(t, 0.25, 0.06, 2000, master); note(1200, t + 0.25, 0.08, 'square', 0.03, master); note(1500, t + 0.36, 0.08, 'square', 0.03, master); }
+  else if (kind === 'susto') { noise(t, 0.5, 0.35, 800, master); for (const f of [hz(theme.root + 36), hz(theme.root + 37), hz(theme.root + 42)]) note(f, t, 1.1, 'sawtooth', 0.09, master); kick(t, 1); }
+  else if (kind === 'nota') { for (const [k, f] of [[0, 660], [0.12, 880], [0.24, 1320]]) note(f, t + k, 0.3, 'sine', 0.06, master); }
   else if (kind === 'boom') { noise(t, 0.8, 0.3, 200, master); kick(t, 1); }
 }

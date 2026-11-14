@@ -51,6 +51,18 @@ canvas { display: block; width: 100%; height: auto; image-rendering: pixelated; 
 .destinos { display: grid; grid-template-columns: repeat(3, 1fr); gap: .6rem; margin: 1rem 0; }
 .dificultad { display: flex; flex-wrap: wrap; gap: .4rem; justify-content: center; align-items: center; margin-top: .8rem; }
 .dificultad button { padding: .3rem .8rem; } .dificultad button.on { background: var(--fg, #fff); color: var(--bg, #000); }
+.dificultad .lbl { color: var(--dim); font-size: .9rem; width: 6.5rem; text-align: right; }
+.dificultad button.bloq { opacity: .6; border-style: dashed; }
+.puntos { color: var(--amber); }
+.premio { color: var(--amber); font-size: 1.4rem; margin: .6rem 0; }
+.medallas { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: .4rem; max-height: 60vh; overflow: auto; }
+.medalla { border: 1px solid var(--line); background: var(--panel2); padding: .4rem .6rem; opacity: .55; text-align: left; }
+.medalla.si { opacity: 1; border-color: var(--amber); } .medalla.nueva { margin: .3rem auto; max-width: 340px; animation: brilla 1s ease-in-out 3; }
+@keyframes brilla { 50% { box-shadow: 0 0 18px var(--amber); } }
+.medalla small { display: block; color: var(--dim); }
+.nota { border-left: 2px solid var(--cyan); padding: .2rem .6rem; margin: .3rem 0; text-align: left; } .nota.no { color: var(--dim); border-color: var(--line); } .nota summary { cursor: pointer; }
+.plan li.ruta { color: var(--dim); } .plan li.ruta.ok { color: var(--cyan); }
+button.reto { border-color: var(--amber); color: var(--amber); }
 .dificultad small { flex-basis: 100%; text-align: center; color: var(--dim); }
 .destino { display: flex; flex-direction: column; gap: .3rem; }
 .destino .ico { font-size: 2.2rem; } .destinos small.ia { color: var(--red); }

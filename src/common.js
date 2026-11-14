@@ -109,4 +109,14 @@ export const DIFS = {
   facil: { name: 'Fácil', desc: 'Para aprender: vigilantes lentos y miopes, menos daño.', see: 0.75, spd: 0.85, alert: 0.55, dmg: 0.5, vil: [1, 1, 2], search: 0.5, grace: 35, late: 30, robotLife: 100, robotStun: 3, maxHaz: 2, excuse: true, regen: 0.06 },
   normal: { name: 'Normal', desc: 'La experiencia pensada: tenso pero justo.', see: 0.9, spd: 0.93, alert: 0.8, dmg: 0.7, vil: [1, 2, 2], search: 0.75, grace: 25, late: 22, robotLife: 170, robotStun: 2, maxHaz: 3, excuse: true, regen: 0.035 },
   dificil: { name: 'Terror', desc: 'Sin piedad: ven lejos, corren y cada día llegan 3 amenazas.', see: 1, spd: 1, alert: 1, dmg: 1, vil: [1, 2, 3], search: 1, grace: 12, late: 15, robotLife: Infinity, robotStun: 0, maxHaz: 99, regen: 0.02 },
+  pesadilla: { name: 'Pesadilla', desc: 'Secreta (600 pts): todo más rápido, más villanos y casi sin gracia.', locked: 600, see: 1.15, spd: 1.1, alert: 1.25, dmg: 1.2, vil: [2, 3, 4], search: 1.2, grace: 6, late: 12, robotLife: Infinity, robotStun: 0, maxHaz: 99, regen: 0.015 },
+};
+
+/** Personajes: se desbloquean con puntos entre partidas. */
+export const PERKS = {
+  novato: { name: 'Novato', desc: 'Sin ventajas. Puro talento.', cost: 0 },
+  atleta: { name: 'Atleta', desc: '+30 fuerza y corres 12 % más rápido.', cost: 150, fuerza: 30, speed: 1.12 },
+  ingeniera: { name: 'Ingeniera', desc: '+30 conocimiento: fabricas y hackeas desde el día 1.', cost: 150, conoc: 30 },
+  sombra: { name: 'Sombra', desc: 'Te ven 20 % menos y tus pasos casi no se oyen.', cost: 300, see: 0.8, quiet: true },
+  contrabandista: { name: 'Contrabandista', desc: '+2 de espacio y empiezas con destornillador.', cost: 300, cap: 2, start: ['destornillador'] },
 };

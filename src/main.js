@@ -1,5 +1,7 @@
 // Pantalla, controles y menús de LIFELINE: Rutina. Mundo en pixel art con cámara que sigue al jugador.
-import { ITEMS, PROTOCOLS, DIFS } from './common.js';
+import { ITEMS, PROTOCOLS, DIFS, PERKS } from './common.js';
+import * as Meta from './meta.js';
+import { NOTES } from './story.js';
 import { LOCS } from './locs.js';
 import * as G from './core.js';
 import { VILLAINS } from './villains.js';
@@ -15,10 +17,12 @@ const cam = { x: 0, y: 0 };
 
 // ---------- guardado (una ranura por destino) ----------
 const SKEY = (loc) => `lfr.${loc}`;
-function save() { if (!s || s.over) return; try { localStorage.setItem(SKEY(s.loc), G.serialize(s)); } catch { /* sin almacenamiento */ } }
+function save() { if (!s || s.over) return; Meta.keepNotes(s); if (s.daily) return; try { localStorage.setItem(SKEY(s.loc), G.serialize(s)); } catch { /* sin almacenamiento */ } }
 function load(loc) { try { const raw = localStorage.getItem(SKEY(loc)); return raw ? G.revive(JSON.parse(raw)) : null; } catch { return null; } }
 const getDif = () => { try { return DIFS[localStorage.getItem('lfr.dif')] ? localStorage.getItem('lfr.dif') : 'normal'; } catch { return 'normal'; } };
 const setDif = (d) => { try { localStorage.setItem('lfr.dif', d); } catch { /* nada */ } };
+const getOpt = (k, d) => { try { return localStorage.getItem('lfr.' + k) ?? d; } catch { return d; } };
+const setOpt = (k, v) => { try { localStorage.setItem('lfr.' + k, v); } catch { /* nada */ } };
 const clearSave = (loc) => { try { localStorage.removeItem(SKEY(loc)); } catch { /* nada */ } };
 const best = (loc) => { try { return +localStorage.getItem(`lfr.best.${loc}`) || 0; } catch { return 0; } };
 const setBest = (loc, n) => { try { if (n > best(loc)) localStorage.setItem(`lfr.best.${loc}`, n); } catch { /* nada */ } };
@@ -319,6 +323,16 @@ function draw(t) {
   if (p.hidden) { cx.font = '18px VT323'; cx.fillStyle = '#9fd4ff'; cx.fillText('ESCONDIDO · muévete o pulsa F para salir', cv.width / 2, cv.height - 40); }
   else if (p.crouch) { cx.font = '16px VT323'; cx.fillStyle = '#9fd4ff'; cx.fillText('agachado: silencioso y difícil de ver', cv.width / 2, cv.height - 40); }
   if (s.final) { cx.font = '32px VT323'; cx.fillStyle = '#ff4b4b'; cx.fillText(`¡DESPEGUE! ${Math.ceil(s.final.t)} s`, cv.width / 2, 30); }
+  // persecución: aviso grande con el tiempo que llevas huyendo
+  const hunted = (s.iaOn && s.drones.some((d) => d.mode === 'persigue')) || s.vil?.walkers.some((w) => w.mode === 'persigue' && !w.gone && !w.away);
+  chaseT = hunted && !p.hidden ? chaseT + 1 / 60 : 0;
+  if (chaseT > 0 && !s.final) { cx.font = '28px VT323'; cx.fillStyle = Math.floor(t / 180) % 2 ? '#ff3b3b' : '#ffffff'; cx.fillText(`¡TE VIERON! ESCÓNDETE · ${chaseT.toFixed(1)} s`, cv.width / 2, cv.height - 64); }
+  // una noche: cuenta regresiva al amanecer
+  if (s.mode === 'noche' && !s.final) { const left = ((s.day >= 2 ? 360 : 1800) - s.min) / (G.MIN_PER_SEC * G.NIGHT_SPEED); cx.font = '22px VT323'; cx.fillStyle = left < 60 && Math.floor(t / 250) % 2 ? '#ff4b4b' : '#9fd4ff'; cx.textAlign = 'left'; cx.fillText(`☀ AMANECE EN ${Meta.fmtTime(Math.max(0, left))}`, 14, 22); cx.textAlign = 'center'; }
+  // alerta alta: las luces parpadean
+  if (s.iaOn && s.alert > 70 && hashRand(Math.floor(t / 90)) < (s.alert - 70) / 260) R(cx, 'rgba(0,0,0,.55)', 0, 0, cv.width, cv.height);
+  // susto: destello rojo al descubrir tu escondite
+  if (scareT > 0) { scareT -= 1 / 60; R(cx, `rgba(160,0,0,${scareT})`, 0, 0, cv.width, cv.height); }
   if (G.isOutside(s) && !p.inDuct) { cx.font = '20px VT323'; cx.fillStyle = p.o2 < 30 ? '#ff4b4b' : '#5ff6ff'; cx.fillText(`O₂ ${Math.ceil(p.o2)}%${G.has(s, 'traje') ? '' : ' · ¡SIN TRAJE!'}`, cv.width / 2, cv.height - 18); }
 }
 
@@ -443,7 +457,7 @@ function bar(v, low = 25) { return `<div class="barrita ${v < low ? 'bajo' : ''}
 function slot(it) { const d = ITEMS[it]; return `<div class="slot ${d.plan ? 'plan' : d.tool ? 'tool' : ''}" title="${G.itemName(s, it)}${d.info ? ' — ' + d.info : ''}">${icon(it)}</div>`; }
 function hud() {
   const p = s.p; const b = G.block(s); const L = s.L;
-  $('dia').textContent = `${L.icon} DÍA ${s.day}/${G.DAYS} · ${G.dif(s).name.toUpperCase()}`;
+  $('dia').textContent = s.mode === 'noche' ? `${L.icon} ${s.daily ? 'RETO' : 'UNA NOCHE'} · ${G.dif(s).name.toUpperCase()} · ${Meta.fmtTime(s.t)}` : `${L.icon} DÍA ${s.day}/${G.DAYS} · ${G.dif(s).name.toUpperCase()}`;
   $('reloj').textContent = G.clock(s.min);
   const late = b.room && s.checked && G.playerRoom(s) !== b.room;
   $('bloque').textContent = b.room ? `${b.name.toUpperCase()} → ${G.roomName(s, b.room)}` : b.name.toUpperCase();
@@ -456,8 +470,8 @@ function hud() {
   $('stats').innerHTML = rows.map(([k, v, low]) => `<span>${k}</span>${bar(v, low)}<span>${Math.floor(v)}</span>`).join('');
   const cap = G.capacity(s); $('cap').textContent = `${p.inv.length}/${cap}`;
   $('inv').innerHTML = Array.from({ length: cap }, (_, i) => (p.inv[i] ? slot(p.inv[i]) : '<div class="slot vacio"></div>')).join('');
-  $('plan').innerHTML = G.PLAN_IDS.map((id) => `<li class="${G.has(s, id) ? 'ok' : ''}" title="${L.plan[id].hint}">${L.plan[id].name}</li>`).join('') + `<li class="${s.iaOn ? '' : 'ok'}" title="Opcional: núcleo de la IA con tarjeta y 50 de conocimiento.">(Opcional) Apagar a ${L.ai}</li>`;
-  $('crew').innerHTML = s.crew.map((c) => `<li><b style="color:${c.color}">■</b> ${c.name}: ${c.want ? `pide <span title="${ITEMS[c.want].name}">${icon(c.want)} ${ITEMS[c.want].name}</span>` : 'contento'}</li>`).join('');
+  $('plan').innerHTML = G.PLAN_IDS.map((id) => `<li class="${G.has(s, id) ? 'ok' : ''}" title="${L.plan[id].hint}">${L.plan[id].name}</li>`).join('') + `<li class="${s.iaOn ? '' : 'ok'}" title="Opcional: núcleo de la IA con tarjeta y 50 de conocimiento.">(Opcional) Apagar a ${L.ai}</li>` + G.routes(s).filter((r) => r.id !== 'plan').map((r) => `<li class="ruta ${r.ok ? 'ok' : ''}" title="${r.desc}">Ruta ${r.name}${r.ok ? ' ✓' : ''}</li>`).join('');
+  $('crew').innerHTML = s.crew.map((c) => `<li><b style="color:${c.color}">■</b> ${c.name} ${c.betrayed ? '💔' : '♥'.repeat(Math.max(0, Math.min(2, c.trust))) + '♡'.repeat(Math.max(0, 2 - c.trust))}: ${c.betrayed ? '<span style="color:var(--red)">te delata</span>' : c.want ? `pide <span title="${ITEMS[c.want].name}">${icon(c.want)} ${ITEMS[c.want].name}</span>` : 'contento'}</li>`).join('');
   const v = s.vil;
   if (v) {
     const th = v.today.map((id, i) => `<li class="${i === 0 ? 'ia' : ''}">${i === 0 && !s.iaOn ? '<s>' + VILLAINS[id].name + '</s>' : VILLAINS[id].name}<small>${VILLAINS[id].desc}</small></li>`).join('')
@@ -489,7 +503,9 @@ function open(html) { $('ventana').innerHTML = html; $('modal').hidden = false; 
 function close() { $('modal').hidden = true; menu = null; }
 
 function titleScreen() {
-  menu = 'titulo';
+  menu = 'titulo'; const mt = Meta.load(); const mode = getOpt('modo', 'campana'); let perk = getOpt('perk', 'novato'); if (!Meta.isUnlocked(mt, perk)) perk = 'novato';
+  if (!Meta.difUnlocked(mt, getDif())) setDif('normal');
+  const dd = Meta.daily(); const dy = { done: mt.daily[dd.key]?.best ?? null };
   const cards = Object.values(LOCS).map((L) => { const sv = load(L.id); const st = best(L.id); return `<div class="destino">
       <button data-loc="${L.id}"><span class="ico">${L.icon}</span>${L.name.toUpperCase()}<small>${L.tag}</small><small class="ia">IA: ${L.ai}</small><small>${'★'.repeat(st)}${'☆'.repeat(3 - st)}</small></button>
       ${sv && !sv.over ? `<button class="mini" data-cont="${L.id}">▶ Continuar (día ${sv.day})</button>` : ''}</div>`; }).join('');
@@ -497,19 +513,44 @@ function titleScreen() {
     <p style="color:var(--dim)">UN JUEGO DE #LosTiraVida · basado en LIFELINE</p>
     <div class="grande">LIFELINE<b>:RUTINA</b></div>
     <p>Cumple la rutina, esquiva a la IA y prepara en secreto tu regreso a la Tierra.</p>
-    <div class="dificultad">${Object.entries(DIFS).map(([k, d]) => `<button data-dif="${k}" class="${k === getDif() ? 'on' : ''}" title="${d.desc}">${d.name.toUpperCase()}</button>`).join('')}<small>${DIFS[getDif()].desc}</small></div>
+    <p class="puntos">⭐ ${mt.pts} PUNTOS · racha ${mt.streak} (mejor ${mt.bestStreak}) · medallas ${Object.keys(mt.medals).length}/${Object.keys(Meta.MEDALS).length}</p>
+    <div class="dificultad"><span class="lbl">MODO</span>${[['campana', 'CAMPAÑA · 10 días'], ['noche', 'UNA NOCHE · 7 min']].map(([k, n]) => `<button data-modo="${k}" class="${k === mode ? 'on' : ''}">${n}</button>`).join('')}</div>
+    <div class="dificultad"><span class="lbl">NIVEL</span>${Object.entries(DIFS).map(([k, d]) => Meta.difUnlocked(mt, k) ? `<button data-dif="${k}" class="${k === getDif() ? 'on' : ''}" title="${d.desc}">${d.name.toUpperCase()}</button>` : `<button data-comprar="dif:${k}" class="bloq" title="${d.desc}">🔒 ${d.name.toUpperCase()} · ${d.locked}</button>`).join('')}<small>${DIFS[getDif()].desc}</small></div>
+    <div class="dificultad"><span class="lbl">PERSONAJE</span>${Object.entries(PERKS).map(([k, d]) => Meta.isUnlocked(mt, k) ? `<button data-perk="${k}" class="${k === perk ? 'on' : ''}" title="${d.desc}">${d.name.toUpperCase()}</button>` : `<button data-comprar="${k}" class="bloq" title="${d.desc}">🔒 ${d.name.toUpperCase()} · ${d.cost}</button>`).join('')}<small>${PERKS[perk].desc}</small></div>
     <div class="destinos">${cards}</div>
-    <div class="fila" style="justify-content:center"><button id="t-ayuda">? CÓMO SE JUEGA</button></div>
+    <div class="fila" style="justify-content:center"><button id="t-reto" class="reto">📅 RETO DEL DÍA${dy.done ? ' · ' + Meta.fmtTime(dy.done) : ''}</button><button id="t-medallas">🏅 MEDALLAS</button><button id="t-archivo">📄 ARCHIVO</button><button id="t-ayuda">? CÓMO SE JUEGA</button></div>
   </div>`);
-  $('ventana').querySelectorAll('[data-loc]').forEach((b) => (b.onclick = () => { M.start(); clearSave(b.dataset.loc); s = G.newGame(b.dataset.loc, undefined, getDif()); base = null; close(); intro(); }));
+  $('ventana').querySelectorAll('[data-loc]').forEach((b) => (b.onclick = () => { M.start(); clearSave(b.dataset.loc); s = G.newGame(b.dataset.loc, undefined, getDif(), { mode, perk, seen: Meta.seenNotes(b.dataset.loc) }); base = null; close(); intro(); }));
+  $('ventana').querySelectorAll('[data-modo]').forEach((b) => (b.onclick = () => { setOpt('modo', b.dataset.modo); titleScreen(); }));
+  $('ventana').querySelectorAll('[data-perk]').forEach((b) => (b.onclick = () => { setOpt('perk', b.dataset.perk); titleScreen(); }));
+  $('ventana').querySelectorAll('[data-comprar]').forEach((b) => (b.onclick = () => { const id = b.dataset.comprar; if (Meta.buy(id)) { beep(990, 0.2); if (id.startsWith('dif:')) setDif(id.slice(4)); else setOpt('perk', id); } else { beep(160, 0.15, 'sawtooth'); b.textContent = 'FALTAN PUNTOS'; setTimeout(titleScreen, 700); return; } titleScreen(); }));
+  $('t-reto').onclick = () => { M.start(); s = G.newGame(dd.loc, dd.seed, dd.dif, { mode: dd.mode, perk: dd.perk, daily: true, seen: Meta.seenNotes(dd.loc) }); base = null; close(); intro(); };
+  $('t-medallas').onclick = medalsScreen; $('t-archivo').onclick = () => archiveScreen(null);
   $('ventana').querySelectorAll('[data-dif]').forEach((b) => (b.onclick = () => { setDif(b.dataset.dif); titleScreen(); }));
   $('ventana').querySelectorAll('[data-cont]').forEach((b) => (b.onclick = () => { M.start(); s = load(b.dataset.cont); base = null; close(); }));
   $('t-ayuda').onclick = () => help(titleScreen);
 }
 
+function medalsScreen() {
+  menu = 'medallas'; const mt = Meta.load();
+  open(`<h2>🏅 MEDALLAS (${Object.keys(mt.medals).length}/${Object.keys(Meta.MEDALS).length})</h2><p style="color:var(--dim)">Cada medalla nueva da +50 puntos.</p>
+    <div class="medallas">${Object.entries(Meta.MEDALS).map(([k, [n, d]]) => `<div class="medalla ${mt.medals[k] ? 'si' : ''}"><b>${mt.medals[k] ? '🏅' : '🔒'} ${n}</b><small>${d}</small></div>`).join('')}</div>
+    <div class="fila"><button id="volver">VOLVER</button></div>`);
+  $('volver').onclick = titleScreen;
+}
+function archiveScreen(back) {
+  menu = 'archivo'; const mt = Meta.load();
+  const block = (loc) => { const L = LOCS[loc]; const known = new Set([...(mt.notes[loc] ?? []), ...(s && s.loc === loc ? s.notes : [])]);
+    return `<h3>${L.icon} ${L.name.toUpperCase()} · ${known.size}/${NOTES[loc].length}${known.size >= NOTES[loc].length ? ' · ★ FINAL VERDADERO DESBLOQUEADO' : ''}</h3>${NOTES[loc].map(([t, x], i) => known.has(i) ? `<details class="nota"><summary>📄 ${t}</summary><p>${x}</p></details>` : `<p class="nota no">📄 ??? <small>(en algún cajón)</small></p>`).join('')}`; };
+  open(`<h2>📄 ARCHIVO</h2><p style="color:var(--dim)">Las notas aparecen al revisar cajones. Junta las 6 de un destino y gana allí para ver su final verdadero.</p>${(back ? [s.loc] : Object.keys(LOCS)).map(block).join('')}<div class="fila"><button id="volver">VOLVER</button></div>`);
+  $('volver').onclick = () => (back ? back() : titleScreen());
+}
+
 function intro() {
   menu = 'intro'; const L = s.L;
-  open(`<h2>${L.icon} ${L.name.toUpperCase()} · DÍA 1</h2>${L.intro.map((t) => `<p>${t}</p>`).join('')}
+  const night = s.mode === 'noche';
+  open(`<h2>${L.icon} ${L.name.toUpperCase()} · ${s.daily ? 'RETO DEL DÍA' : night ? 'UNA NOCHE' : 'DÍA 1'}</h2>${night ? `<p>Son las 21:00. Llevas semanas preparando el escape y esta es la noche. En tu escondite ya tienes parte del plan. Tienes hasta las <b>06:00</b> (unos 7 minutos): si te descubren en el pase de lista, se acabó.</p>` : L.intro.map((t) => `<p>${t}</p>`).join('')}
+    <p><b>3 formas de escapar:</b> el PLAN (4 piezas), el SABOTAJE (apaga la IA: código + llave) o el MOTÍN (gánate a los 3 compañeros: código + combustible). Personaje: <b>${G.perk(s).name}</b>.</p>
     <p>De día cumple el horario (arriba te dice dónde ir; una flecha te guía). Si faltas o te ven haciendo algo raro, sube la <span style="color:var(--amber)">alerta</span>. A 100: bloqueo y te quitan lo que llevas.</p>
     <p>Tus 3 compañeros te piden piezas: ayúdalos y te devuelven favores. Los problemas se resuelven con protocolos de la NASA.</p>
     <div class="fila"><button id="ok">EMPEZAR ▶</button><button id="ay">? CONTROLES</button></div>`);
@@ -519,9 +560,12 @@ function intro() {
 function help(back) {
   menu = 'ayuda';
   open(`<h2>CÓMO SE JUEGA</h2>
-    <p><kbd>WASD</kbd>/<kbd>flechas</kbd> moverse · <kbd>Shift</kbd> agacharse (silencioso) · <kbd>E</kbd> usar / hablar · <kbd>F</kbd> esconderse · <kbd>T</kbd> lanzar pieza (ruido) · <kbd>G</kbd> soltar lo último (o SOLTAR en la mochila) · <kbd>I</kbd> mochila · <kbd>C</kbd> fabricar · <kbd>Q</kbd> inhibidor · <kbd>M</kbd> música · <kbd>Esc</kbd> pausa</p>
+    <p><kbd>WASD</kbd>/<kbd>flechas</kbd> moverse · <kbd>Shift</kbd> agacharse (silencioso) · <kbd>E</kbd> usar / hablar · <kbd>F</kbd> esconderse · <kbd>T</kbd> lanzar pieza (ruido) · <kbd>G</kbd> soltar lo último (o SOLTAR en la mochila) · <kbd>B</kbd> delatar a un compañero · <kbd>I</kbd> mochila · <kbd>C</kbd> fabricar · <kbd>Q</kbd> inhibidor · <kbd>M</kbd> música · <kbd>Esc</kbd> pausa</p>
     <p><b>Sigilo:</b> si un dron o un guardia te <b>toca</b> con algo raro encima, te atrapan. Caminar hace ruido: agáchate. Escóndete en <b>casilleros</b> o bajo las camas; si te vieron entrar, vendrán a revisar y tendrás que <b>contener la respiración</b>. Lanza piezas para distraerlos.</p>
     <p><b>Manipula:</b> cuando un compañero está contento (ya le hiciste el favor), pídele que distraiga a un dron o guardia 30 s. Soborna al Soplón, desenmascara al Doble, entretén a Volkov.</p>
+    <p><b>3 rutas de escape:</b> PLAN (4 piezas) · SABOTAJE (IA apagada + código + llave) · MOTÍN (los 3 compañeros con ♥♥ + código + combustible). <b>Delatar</b> (B) baja tu alerta y te da una tarjeta, pero ese compañero te odiará y te acusará.</p>
+    <p><b>Notas:</b> en los cajones hay notas que cuentan qué pasó. Junta las 6 de un destino para el <b>final verdadero</b>.</p>
+    <p><b>Entre partidas:</b> ganas puntos (más si ganas, rachas, medallas y notas) para desbloquear personajes y el nivel Pesadilla. <b>Una noche</b> = partida corta de 7 min. <b>Reto del día</b> = la misma partida para todos: compara tu tiempo.</p>
     <p><b>Villanos:</b> cada destino tiene 10. La IA siempre está; los demás se sortean cada día (mira «Amenazas de hoy»). Las <b>misiones por radio</b> tienen reloj y dan premios.</p>
     <p><b>Rutina:</b> 06:00 pase de lista · 07:00 desayuno · 08:00 trabajo · 12:00 almuerzo · 13:00 ejercicio · 15:00 libre · 18:00 pase de lista · 19:00 cena · 20:00 libre · 22:00 luces apagadas.</p>
     <p><b>Mejora:</b> la cinta del Gimnasio sube la <b>fuerza</b> (cargas más y mueves cosas pesadas). Las terminales del Laboratorio suben el <b>conocimiento</b> (desbloquean recetas).</p>
@@ -563,16 +607,19 @@ function bagMenu() {
   open(`<h2>MOCHILA (${s.p.inv.length}/${G.capacity(s)})</h2>
     <div class="mochila">${s.p.inv.map((x, i) => it(x, i)).join('') || '<p style="color:var(--dim)">(vacía)</p>'}</div>
     <h3>EN TU ESCONDITE (${s.stash.length}/${G.STASH_MAX})</h3><div class="mochila">${s.stash.map((x) => it(x)).join('') || '<p style="color:var(--dim)">(vacío)</p>'}</div>
+    <h3>RUTAS DE ESCAPE</h3><ul class="plan">${G.routes(s).map((r) => `<li class="${r.ok ? 'ok' : ''}"><b>${r.name}</b> — ${r.desc}</li>`).join('')}</ul>
     <h3>PLAN DE REGRESO</h3><ul class="plan">${plan}</ul>
+    ${s.notes.length ? `<h3>NOTAS ENCONTRADAS EN ESTA PARTIDA</h3>${s.notes.map((i) => `<details class="nota"><summary>📄 ${NOTES[s.loc][i][0]}</summary><p>${NOTES[s.loc][i][1]}</p></details>`).join('')}` : ''}<p style="color:var(--dim)">Notas de ${s.L.name}: ${G.notesKnown(s)}/${NOTES[s.loc].length} <button class="mini" id="archivo">VER ARCHIVO</button></p>
     <p style="color:var(--dim)">Herramientas encima: ${s.p.inv.filter(G.isContraband).length} · con 2 o más te las quitan en el pase de lista.</p>
     <div class="fila"><button id="cerrar">CERRAR [I]</button></div>`);
   $('cerrar').onclick = close;
+  $('archivo').onclick = () => archiveScreen(bagMenu);
   $('ventana').querySelectorAll('[data-soltar]').forEach((b) => (b.onclick = () => { G.dropItem(s, +b.dataset.soltar); bagMenu(); }));
 }
 
 // Minijuego 0: contener la respiración. Mantén ESPACIO (o el botón) para empujar la aguja dentro de la zona.
 function breathGame() {
-  menu = 'respira'; const who = s.pending.who; const name = who.vid ? VILLAINS[who.vid].name : `Un ${s.L.watcher}`;
+  menu = 'respira'; M.sting('susto'); scareT = 0.5; s.stats.hid++; const who = s.pending.who; const name = who.vid ? VILLAINS[who.vid].name : `Un ${s.L.watcher}`;
   open(`<h2>NO RESPIRES</h2><p>${name} está revisando tu escondite… Mantén <kbd>ESPACIO</kbd> (o el botón) para controlar la respiración y deja la aguja dentro de la zona.</p>
     <div class="respira-latido" id="lat">♥</div><div class="respira"><div class="zona" id="zona"></div><div class="aguja" id="aguja"></div></div><div class="tiempo"><i id="rt"></i></div>
     <div class="fila"><button id="aguanta">AGUANTAR (mantener)</button></div>`);
@@ -642,15 +689,27 @@ function cablesGame() {
   }));
 }
 
+function nextUnlock(total) {
+  const mt = Meta.load(); const all = [...Object.entries(PERKS).map(([k, d]) => [k, d.name, d.cost]), ...Object.entries(DIFS).filter(([, d]) => d.locked).map(([k, d]) => ['dif:' + k, d.name, d.locked])];
+  const n = all.filter(([k, , c]) => c && !mt.unlocked.includes(k)).sort((a, b) => a[2] - b[2])[0];
+  return n ? `${n[1]} (${n[2]} pts, te faltan ${Math.max(0, n[2] - total)})` : 'ya tienes todo';
+}
 function endScreen() {
   menu = 'fin'; clearSave(s.loc);
-  const o = s.over; if (o.won) setBest(s.loc, o.stars);
+  const o = s.over; if (o.won && !s.daily) setBest(s.loc, o.stars);
+  const r = Meta.finish(s); const dr = r.daily;
+  const share = s.daily ? `LIFELINE:RUTINA · Reto ${Meta.today()} · ${s.L.name}: ${o.won ? `escapé en ${Meta.fmtTime(s.t)} ${'★'.repeat(o.stars)}` : 'no escapé 💀'} · atrapado ${s.stats.caught}× · https://neckhurtttt.github.io/Custodia/` : '';
   open(`<div class="titulo"><h2>${o.won ? '¡VOLVISTE A CASA!' : 'MISIÓN PERDIDA'}</h2>
     ${o.won ? `<div class="estrellas">${'★'.repeat(o.stars)}${'☆'.repeat(3 - o.stars)}</div>` : ''}
     <p style="font-size:1.4rem;color:var(--amber)">${o.title}</p><p>${o.text}</p>
     <p style="color:var(--dim)">Problemas resueltos: ${s.stats.solved} · favores: ${s.stats.favors} · veces atrapado: ${s.stats.caught} · alerta final: ${Math.round(s.alert)} · integridad: ${Math.max(0, Math.round(s.integ))}</p>
-    <div class="fila" style="justify-content:center"><button id="otra">JUGAR OTRA VEZ</button><button id="menu">MENÚ</button></div></div>`);
-  $('otra').onclick = () => { s = G.newGame(s.loc, undefined, s.dif); base = null; close(); intro(); };
+    <div class="premio">+${r.pts} PUNTOS (total ${r.total})${r.streak > 1 ? ` · 🔥 RACHA ${r.streak}` : ''}${r.newNotes ? ` · 📄 ${r.newNotes} nota(s) nueva(s)` : ''}</div>
+    ${r.medals.map((id) => `<div class="medalla si nueva"><b>🏅 ${Meta.MEDALS[id][0]}</b><small>${Meta.MEDALS[id][1]}</small></div>`).join('')}
+    ${dr ? `<p>${dr.isNew ? '¡NUEVO RÉCORD DEL DÍA!' : dr.best ? `Tu récord de hoy: ${Meta.fmtTime(dr.best)}` : ''}</p>` : ''}
+    ${!o.won ? `<p style="color:var(--dim)">Siguiente desbloqueo: ${nextUnlock(r.total)}</p>` : ''}
+    <div class="fila" style="justify-content:center">${s.daily ? '<button id="compartir">📋 COMPARTIR RESULTADO</button>' : '<button id="otra">JUGAR OTRA VEZ ▶</button>'}<button id="menu">MENÚ</button></div></div>`);
+  if (s.daily) $('compartir').onclick = () => { navigator.clipboard?.writeText(share).then(() => ($('compartir').textContent = '✓ COPIADO'), () => prompt('Copia tu resultado:', share)); };
+  else $('otra').onclick = () => { s = G.newGame(s.loc, undefined, s.dif, { mode: s.mode, perk: s.perk, seen: Meta.seenNotes(s.loc) }); base = null; close(); intro(); };
   $('menu').onclick = titleScreen;
 }
 
@@ -670,8 +729,9 @@ function act(k) {
   else if (k === 'f') G.toggleHide(s);
   else if (k === 't') G.throwItem(s);
   else if (k === 'g') G.dropItem(s);
+  else if (k === 'b') G.betray(s);
   else if (k === 'i') bagMenu();
-  else if (k === 'p' || k === 'escape') { open(`<h2>PAUSA</h2><div class="fila"><button id="seguir">SEGUIR [Esc]</button><button id="mus">${M.on() ? 'QUITAR MÚSICA' : 'PONER MÚSICA'}</button><button id="ay">AYUDA</button><button id="salir">SALIR AL MENÚ (se guarda)</button></div>`); menu = 'pausa'; $('mus').onclick = () => { M.toggle(); close(); act('p'); }; $('seguir').onclick = close; $('ay').onclick = () => help(() => { close(); act('p'); }); $('salir').onclick = () => { save(); titleScreen(); }; }
+  else if (k === 'p' || k === 'escape') { open(`<h2>PAUSA</h2><div class="fila"><button id="seguir">SEGUIR [Esc]</button><button id="mus">${M.on() ? 'QUITAR MÚSICA' : 'PONER MÚSICA'}</button><button id="vmenos">VOL −</button><span id="vol">${Math.round(M.volume() * 100)} %</span><button id="vmas">VOL +</button><button id="ay">AYUDA</button><button id="salir">SALIR AL MENÚ (se guarda)</button></div>`); menu = 'pausa'; $('mus').onclick = () => { M.toggle(); close(); act('p'); }; $('vmenos').onclick = () => { $('vol').textContent = Math.round(M.volume(-0.25) * 100) + ' %'; }; $('vmas').onclick = () => { $('vol').textContent = Math.round(M.volume(0.25) * 100) + ' %'; }; $('seguir').onclick = close; $('ay').onclick = () => help(() => { close(); act('p'); }); $('salir').onclick = () => { save(); titleScreen(); }; }
 }
 addEventListener('keydown', (e) => {
   const k = e.key.toLowerCase();
@@ -679,7 +739,7 @@ addEventListener('keydown', (e) => {
   if (e.repeat) return;
   keys.add(k);
   if (k === 'escape' && menu && !['titulo', 'fin', 'protocolo', 'intro', 'codigo', 'cables', 'respira'].includes(menu)) { if (menu === 'escondite') s.pending = null; close(); return; }
-  if (['e', 'q', 'c', 'p', 'f', 't', 'g', 'i', 'm', 'escape'].includes(k)) act(k);
+  if (['e', 'q', 'c', 'p', 'f', 't', 'g', 'b', 'i', 'm', 'escape'].includes(k)) act(k);
 });
 addEventListener('keyup', (e) => keys.delete(e.key.toLowerCase()));
 addEventListener('blur', () => keys.clear());
@@ -707,7 +767,7 @@ function musicLevel() {
   return 0;
 }
 // ---------- bucle ----------
-let lastMsg = null; let stepT = 0;
+let lastMsg = null; let stepT = 0; let scareT = 0; let chaseT = 0;
 function frame(t) {
   const dt = Math.min(0.05, (t - last) / 1000); last = t;
   if (s) {
@@ -716,13 +776,14 @@ function frame(t) {
     if (!menu && s.pending?.kind === 'respira') breathGame();
     while (s.sfx?.length) { const k = s.sfx.shift(); M.sting(k); }
     M.set(s.loc, musicLevel(), G.isNight(s));
+    if (!menu && !s.p.sleep) M.heartbeat(Math.max(danger(), s.final ? 0.6 : 0));
     if (s.msg && s.msg !== lastMsg) { lastMsg = s.msg; beep(s.msg.kind === 'bad' ? 200 : s.msg.kind === 'ok' ? 880 : 520, 0.15, s.msg.kind === 'bad' ? 'sawtooth' : 'square'); }
     if (!menu && (inp.dx || inp.dy) && (stepT -= dt) <= 0) { stepT = 0.28; beep(G.isOutside(s) ? 70 : 110, 0.03, 'triangle', 0.02); }
     if (!menu && (s.final || s.hazards.some((h) => h.def.type === 'front' && h.phase === 'aviso')) && Math.floor(t / 500) !== Math.floor((t - dt * 1000) / 500)) beep(660, 0.12, 'sawtooth', 0.025);
     draw(t);
     hudT -= dt; if (hudT <= 0) { hud(); hudT = 0.12; }
     saveT -= dt; if (saveT <= 0) { save(); saveT = 10; }
-    if (s.over && menu !== 'fin') { hud(); endScreen(); }
+    if (s.over && !s.over.shown) { s.over.shown = true; hud(); endScreen(); }
   }
   requestAnimationFrame(frame);
 }

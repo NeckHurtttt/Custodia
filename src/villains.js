@@ -133,7 +133,7 @@ export function updateVillains(s, dt, dm) {
 
 function sees(s, w, range = 6) {
   const p = s.p; if (p.inDuct || p.hidden) return false;
-  let k = C.dif(s).see; if (p.crouch) k *= 0.7; if (C.isNight(s)) k *= 0.8; if (C.dark(s)) k *= 0.55;
+  let k = C.dif(s).see * (C.perk(s).see ?? 1); if (p.crouch) k *= 0.7; if (C.isNight(s)) k *= 0.8; if (C.dark(s)) k *= 0.55;
   const dx = p.x - w.x, dy = p.y - w.y, d = Math.hypot(dx, dy);
   if (d > range * k) return false;
   if (d > 1.2) { let a = Math.atan2(dy, dx) - w.dir; a = Math.atan2(Math.sin(a), Math.cos(a)); if (Math.abs(a) > 0.9) return false; }
@@ -160,9 +160,9 @@ function updateWalker(s, w, dt) {
   if (w.busy > 0) { w.busy -= dt; if (w.busyBy) w.dir = Math.atan2(w.busyBy.y - w.y, w.busyBy.x - w.x); w.mode = 'charla'; if (w.busy <= 0) w.mode = 'patrulla'; return; }
   if (C.isNight(s) && s.min > 1380 && !d.zone && w.mode === 'patrulla' && rnd(s) < 0.0005) { /* rondas nocturnas: siguen */ }
   const see = sees(s, w) && !(w.ignore > 0);
-  if (see && wants(s, w)) { if (w.mode !== 'persigue') spotted(s, w); w.mode = 'persigue'; w.lost = 0; w.goal = [p.x, p.y]; }
+  if (see && wants(s, w)) { if (w.mode !== 'persigue') { spotted(s, w); s.stats.spotted++; } w.mode = 'persigue'; w.lost = 0; w.goal = [p.x, p.y]; }
   else if (w.mode === 'persigue') { w.lost += dt; if (w.lost > 3.5) { w.mode = 'investiga'; w.look = 4; } }
-  if (w.mode === 'patrulla' && p.noisy && !p.hidden && Math.hypot(p.x - w.x, p.y - w.y) < 3) { w.mode = 'investiga'; w.goal = [p.x, p.y]; w.look = 3; }
+  if (w.mode === 'patrulla' && p.noisy && !p.hidden && Math.hypot(p.x - w.x, p.y - w.y) < (C.perk(s).quiet ? 1.4 : 3)) { w.mode = 'investiga'; w.goal = [p.x, p.y]; w.look = 3; }
   if (s.noise && w.mode === 'patrulla' && Math.hypot(s.noise.x - w.x, s.noise.y - w.y) < 10) { w.mode = 'investiga'; w.goal = [s.noise.x, s.noise.y]; w.look = 4; }
   // Hart sigue las huellas
   if (d.prints && w.mode === 'patrulla' && s.vil.prints.length) { const f = s.vil.prints[s.vil.prints.length - 1]; if (Math.hypot(f.x - w.x, f.y - w.y) < 16) { w.mode = 'investiga'; w.goal = [f.x, f.y]; w.look = 1; } }

@@ -1,5 +1,7 @@
 // Lógica de LIFELINE: Rutina (sin pantalla). La interfaz llama a update(), interact(), useQ(), craft()…
-import { ITEMS, LOOT, RECIPES, HAZARDS, DIFS } from './common.js';
+import { ITEMS, LOOT, RECIPES, HAZARDS, DIFS, PERKS } from './common.js';
+import { NOTES, TRUE_END } from './story.js';
+export const perk = (s) => PERKS[s.perk] ?? PERKS.novato;
 export const dif = (s) => DIFS[s.dif] ?? DIFS.normal;
 import { LOCS } from './locs.js';
 import * as V from './villains.js';
@@ -108,29 +110,50 @@ export function follow(s, b, goal, speed, dt, who = 'd') {
 }
 
 // ---------- partida nueva ----------
-export function newGame(loc = 'estacion', seed = Date.now() & 0x7fffffff, difKey = 'normal') {
+export function newGame(loc = 'estacion', seed = Date.now() & 0x7fffffff, difKey = 'normal', opts = {}) {
   const L = LOCS[loc];
   const s = {
-    loc, L, seed, dif: DIFS[difKey] ? difKey : 'normal', grace: 0, day: 1, min: 340, map: buildMap(L),
+    loc, L, seed, dif: DIFS[difKey] ? difKey : 'normal', grace: 0, day: 1, mode: opts.mode === 'noche' ? 'noche' : 'campana', perk: PERKS[opts.perk] ? opts.perk : 'novato', daily: !!opts.daily,
+    seen: opts.seen ?? [], notes: [], route: null, t: 0, min: 340, map: buildMap(L),
     p: { x: 3.5, y: 3.5, dir: 0, inDuct: false, hidden: null, crouch: false, noisy: false, dusty: 0, sleep: false, salud: 100, energia: 90, fuerza: 5, conoc: 5, o2: 100, inv: ['cinta', 'tornillos'], hit: 0, walk: 0 },
     stash: [], alert: 0, integ: 100, iaOn: true, frags: [false, false, false], grates: L.grates.map(() => false),
     objects: L.objects.map((o) => ({ ...o, loot: [], used: false })),
     vil: null, shake: 0, sfx: [], floor: [],
     drones: [], hazards: [], crew: [], log: [], block: -1, blockStart: 0, checked: false, ate: false, worked: 0, illegal: 0,
-    action: null, pending: null, final: null, over: null, msg: null, events: [], noise: null, stats: { caught: 0, solved: 0, favors: 0 },
+    action: null, pending: null, final: null, over: null, msg: null, events: [], noise: null, stats: { caught: 0, solved: 0, favors: 0, alertMax: 0, spotted: 0, hid: 0 },
   };
   addLockers(s);
   for (let i = 0; i < 3; i++) addDrone(s, i);
-  L.crew.forEach((c, i) => { const [bx, by] = L.beds[i]; s.crew.push({ ...c, x: bx + 0.5, y: by + 0.5, dir: 0, path: null, goal: null, sayT: 5 + i * 7, say: null, want: null, avoid: ['ia', 'esclusa', 'capsula', 'exterior'] }); });
-  refill(s); planEvents(s); newWants(s); V.startDay(s);
-  say(s, `Día 1 en ${L.name}. ${L.ai} tomó el control. Tienes ${DAYS} días para volver a casa.`, 'ia');
+  L.crew.forEach((c, i) => { const [bx, by] = L.beds[i]; s.crew.push({ ...c, trust: 0, betrayed: false, tellCd: 0, x: bx + 0.5, y: by + 0.5, dir: 0, path: null, goal: null, sayT: 5 + i * 7, say: null, want: null, avoid: ['ia', 'esclusa', 'capsula', 'exterior'] }); });
+  const pk = perk(s); s.p.fuerza += pk.fuerza ?? 0; s.p.conoc += pk.conoc ?? 0; for (const it of pk.start ?? []) s.p.inv.push(it);
+  if (s.mode === 'noche') setupNight(s);
+  refill(s); if (s.mode !== 'noche') planEvents(s); newWants(s); V.startDay(s);
+  if (s.mode === 'noche') say(s, `UNA NOCHE en ${L.name}. Ya tienes parte del plan. Escapa antes de las 06:00 o ${L.ai} te descubre.`, 'ia');
+  else say(s, `Día 1 en ${L.name}. ${L.ai} tomó el control. Tienes ${DAYS} días para volver a casa.`, 'ia');
   return s;
 }
+/** Modo UNA NOCHE: empiezas a las 21:00 con medio plan hecho; escapa antes de que amanezca. */
+function setupNight(s) {
+  const p = s.p; s.min = 1260; p.conoc = Math.max(p.conoc, 45); p.fuerza = Math.max(p.fuerza, 45); p.energia = 100;
+  p.inv = p.inv.filter((i) => i !== 'destornillador'); s.stash.push('destornillador'); // herramienta en el escondite: encima te la quitarían
+  const pool = [...PLAN_IDS]; const got = [];
+  while (got.length < 2) got.push(pool.splice(Math.floor(rand(s) * pool.length), 1)[0]);
+  for (const id of got) {
+    s.stash.push(id);
+    if (id === 'codigo') s.frags = [true, true, true];
+    if (id === 'celda') { const o = s.objects.find((x) => x.t === 'caja'); if (o) o.used = true; }
+    if (id === 'traje') { const o = s.objects.find((x) => x.t === 'traje'); if (o) o.used = true; }
+  }
+  s.events = [1350 + Math.floor(rand(s) * 200)];
+  say(s, `En tu escondite ya tienes: ${got.map((i) => itemName(s, i)).join(' y ')}.`, 'ok');
+}
+export const NIGHT_SPEED = 0.3125; // en UNA NOCHE el reloj va más lento: 9 h ≈ 7 min
 /** Después de cargar una partida guardada: vuelve a armar lo que no se guarda. */
 export function revive(o) {
   o.L = LOCS[o.loc]; const map = buildMap(o.L);
   (o.doorsOpen ?? []).forEach((v, i) => { if (map.doors[i]) map.doors[i].open = v; }); delete o.doorsOpen;
-  o.map = map; o.pending = null; o.action = null; o.floor ??= [];
+  o.map = map; o.pending = null; o.action = null; o.floor ??= []; o.mode ??= 'campana'; o.perk ??= 'novato'; o.seen ??= []; o.notes ??= []; o.t ??= 0;
+  for (const c of o.crew) { c.trust ??= 0; c.tellCd ??= 0; }
   for (const h of o.hazards) h.def = HAZARDS[h.kind];
   (o.doorsLock ?? []).forEach((v, i) => { if (map.doors[i]) map.doors[i].lock = v; }); delete o.doorsLock;
   return o;
@@ -162,7 +185,7 @@ function planEvents(s) { const n = s.day < 2 ? 0 : s.day < 5 ? 1 : 2; s.events =
 function newWants(s) { for (const c of s.crew) { c.want = pickWeighted(s, LOOT); c.reward = pick(s, ['conoc', 'fuerza', 'pieza', 'pieza', 'chip']); } }
 
 // ---------- jugador ----------
-export const capacity = (s) => 5 + Math.floor(s.p.fuerza / 20);
+export const capacity = (s) => 5 + Math.floor(s.p.fuerza / 20) + (perk(s).cap ?? 0);
 export const has = (s, id) => s.p.inv.includes(id);
 export const isContraband = (id) => !!ITEMS[id]?.tool;
 export function give(s, id) { if (s.p.inv.length >= capacity(s)) { flash(s, `Llevas las manos llenas: no puedes tomar ${itemName(s, id)}. Suelta algo con G (o SOLTAR en la mochila) o déjalo en tu escondite.`, 'warn'); return false; } s.p.inv.push(id); return true; }
@@ -185,7 +208,7 @@ const MAGNET = ['spread', 'chaser', 'pull', 'robot', 'mold'];
 
 export function raise(s, n, why) {
   if (!s.iaOn || s.over || s.final) return;
-  n *= dif(s).alert; s.alert = Math.min(100, s.alert + n);
+  n *= dif(s).alert; s.alert = Math.min(100, s.alert + n); s.stats.alertMax = Math.max(s.stats.alertMax ?? 0, s.alert);
   if (why) say(s, `${s.L.ai}: ${why} (+${Math.round(n)} de alerta)`, 'ia');
   if (s.alert >= 100) lockdown(s);
 }
@@ -209,7 +232,9 @@ export function update(s, dt, input = { dx: 0, dy: 0 }) {
   p.noisy = moving && !p.crouch && !p.inDuct && !p.sleep;
   if (p.sleep && (moving || !isNight(s))) { p.sleep = false; if (!isNight(s)) say(s, 'Despiertas. Hora del pase de lista.', 'info'); }
   const prevMin = s.min;
-  s.min += dt * MIN_PER_SEC * (p.sleep ? SLEEP_MULT : 1);
+  s.t += dt;
+  s.min += dt * MIN_PER_SEC * (p.sleep ? SLEEP_MULT : 1) * (s.mode === 'noche' && !s.final ? NIGHT_SPEED : 1);
+  if (s.mode === 'noche' && s.day >= 2 && s.min >= 360 && !s.final) { end(s, false, 'Amaneció', `Sonó el pase de lista de las 06:00 y ${s.L.ai} encontró tu cama vacía. La noche se acabó.`); return; }
   const dm = s.min - prevMin;
 
   if (s.min >= 1440) { newDay(s); if (s.over) return; }
@@ -232,7 +257,7 @@ export function update(s, dt, input = { dx: 0, dy: 0 }) {
   if (moving && !p.sleep) {
     s.action = null;
     const len = Math.hypot(input.dx, input.dy);
-    let sp = (p.energia <= 0 ? 1.8 : 3.6) * (p.crouch ? 0.52 : 1) * dt;
+    let sp = (p.energia <= 0 ? 1.8 : 3.6) * (p.crouch ? 0.52 : 1) * (perk(s).speed ?? 1) * dt;
     if (slowHere(s)) sp *= 0.5;
     p.dir = Math.atan2(input.dy, input.dx); p.walk += dt;
     moveBody(s, p, (input.dx / len) * sp, (input.dy / len) * sp, 0.28, 'p');
@@ -293,10 +318,10 @@ function updateDrones(s, dt) {
     if (d.ignore > 0) d.ignore -= dt;
     d.cd = Math.max(0, d.cd - dt);
     const sees = canSee(s, d, dk ? 0.55 : 1);
-    if (sees && suspicious(s) && !(d.ignore > 0)) { if (d.mode !== 'persigue') V.spotted(s, d); d.mode = 'persigue'; d.lost = 0; d.target = [p.x, p.y]; raise(s, 14 * dt); }
+    if (sees && suspicious(s) && !(d.ignore > 0)) { if (d.mode !== 'persigue') { V.spotted(s, d); s.stats.spotted++; } d.mode = 'persigue'; d.lost = 0; d.target = [p.x, p.y]; raise(s, 14 * dt); }
     else if (d.mode === 'persigue') { d.lost += dt; if (d.lost > 3) { d.mode = 'investiga'; d.look = 4; d.path = null; } }
     // oído: pasos cerca o un ruido
-    if (d.mode === 'patrulla' && p.noisy && !p.hidden && Math.hypot(p.x - d.x, p.y - d.y) < 2.8) { d.mode = 'investiga'; d.target = [p.x, p.y]; d.look = 3; }
+    if (d.mode === 'patrulla' && p.noisy && !p.hidden && Math.hypot(p.x - d.x, p.y - d.y) < (perk(s).quiet ? 1.3 : 2.8)) { d.mode = 'investiga'; d.target = [p.x, p.y]; d.look = 3; }
     if (s.noise && d.mode === 'patrulla' && Math.hypot(s.noise.x - d.x, s.noise.y - d.y) < 10) { d.mode = 'investiga'; d.target = [s.noise.x, s.noise.y]; d.look = 4; }
     d.chasing = d.mode === 'persigue' || !!s.final;
     let goal;
@@ -373,7 +398,7 @@ export const nearest = (arr, x, y) => arr.slice().sort((a, b) => Math.hypot(a.x 
 
 export function canSee(s, d, k = 1) {
   const p = s.p; if (p.inDuct || p.hidden || d.stun > 0 || !s.iaOn) return false;
-  k *= dif(s).see; if (p.crouch) k *= 0.7; if (isNight(s)) k *= 0.85;
+  k *= dif(s).see * (perk(s).see ?? 1); if (p.crouch) k *= 0.7; if (isNight(s)) k *= 0.85;
   const dx = p.x - d.x, dy = p.y - d.y, dist = Math.hypot(dx, dy);
   if (dist > VIEW * k) return false;
   if (dist > 1.2) { let a = Math.atan2(dy, dx) - d.dir; a = Math.atan2(Math.sin(a), Math.cos(a)); if (Math.abs(a) > FOV) return false; }
@@ -410,6 +435,7 @@ function updateCrew(s, dt) {
     if (c.busyT > 0 && c.distractT) { c.busyT -= dt; c.goal = [c.distractT.x + 0.9, c.distractT.y]; c.goalBlock = s.block; c.goalDay = s.day; if (c.busyT <= 0) { c.distractT = null; c.goal = null; } }
     follow(s, c, c.goal ?? [c.x, c.y], c.busyT > 0 ? 3 : 2.1, dt, 'd');
     c.sayT -= dt;
+    if (c.betrayed && s.iaOn && (c.tellCd -= dt) <= 0 && suspicious(s) && !s.p.hidden && !s.p.inDuct && Math.hypot(c.x - s.p.x, c.y - s.p.y) < 6 && los(s, c.x, c.y, s.p.x, s.p.y)) { c.tellCd = 20; c.say = '¡IA! ¡Mira lo que hace!'; c.sayFor = 3; raise(s, 8, `${c.name} me contó que te vio en algo raro.`); }
     if (danger && !c.alarmed) { c.alarmed = true; c.say = pick(s, ['¡Cuidado!', '¡Alerta! ¡Protocolo!', '¿Alguien tiene herramientas?', '¡Aléjate de eso!']); c.sayFor = 3; }
     if (!danger) c.alarmed = false;
     if (c.sayT <= 0) { c.sayT = 18 + rand(s) * 25; c.say = pick(s, CREW_LINES); c.sayFor = 4; }
@@ -419,6 +445,7 @@ function updateCrew(s, dt) {
 
 /** Hablar con un compañero: te pide una pieza y te devuelve un favor. */
 function talk(s, c) {
+  if (c.betrayed) return flash(s, `${c.name}: "No te hablo. Me vendiste."`, 'bad');
   if (!c.want) {
     if (c.dday === s.day) return flash(s, `${c.name}: "Ya te cubrí hoy. Mañana te ayudo otra vez."`, 'info');
     const targets = [...s.drones.filter((d) => s.iaOn && d.stun <= 0), ...(s.vil?.walkers ?? []).filter((w) => !w.away && !w.gone && w.kind === 'walker')];
@@ -429,7 +456,8 @@ function talk(s, c) {
     return flash(s, `${c.name} va a distraer a ${t.vid ? t.name : 'un ' + s.L.watcher} durante 30 s. ¡Aprovecha!`, 'ok');
   }
   if (!has(s, c.want)) return flash(s, `${c.name}: "¿Me consigues ${ITEMS[c.want].name}? Te lo devuelvo con un favor."`, 'info');
-  take(s, c.want); c.want = null; s.stats.favors++;
+  take(s, c.want); c.want = null; s.stats.favors++; c.trust++;
+  if (c.trust === 2) say(s, `${c.name} confía en ti por completo. (Ruta MOTÍN: ${s.crew.filter((x) => x.trust >= 2).length}/3)`, 'ok');
   const r = c.reward;
   if (r === 'conoc') { s.p.conoc = Math.min(100, s.p.conoc + 6); flash(s, `${c.name} te enseñó trucos de ingeniería (+6 conocimiento).`, 'ok'); }
   else if (r === 'fuerza') { s.p.fuerza = Math.min(100, s.p.fuerza + 6); flash(s, `${c.name} te armó una rutina de ejercicios (+6 fuerza).`, 'ok'); }
@@ -570,7 +598,7 @@ export function label(s, n) {
   if (!n) return '';
   if (n.kind === 'suelo') return `Recoger ${itemName(s, n.f.id)}`;
   if (n.kind === 'obj') return s.L.labels[n.o.t] ?? OBJ_LABEL[n.o.t];
-  if (n.kind === 'crew') return n.c.want ? `Hablar con ${n.c.name}` : `Pedir a ${n.c.name} que distraiga`;
+  if (n.kind === 'crew') return n.c.betrayed ? `${n.c.name} (te odia)` : (n.c.want ? `Hablar con ${n.c.name}` : `Pedir a ${n.c.name} que distraiga`) + (s.iaOn ? ' · [B] delatar' : '');
   if (n.kind === 'vil') return V.label(s, n);
   if (n.kind === 'rejilla') return s.p.inDuct ? 'Salir del conducto' : 'Entrar al conducto';
   if (n.kind === 'puerta') return (n.door.open ? 'Cerrar' : 'Abrir') + ' escotilla';
@@ -601,6 +629,7 @@ export function interact(s) {
     case 'cama':
       if (!o.mine) return flash(s, 'Esa no es tu cama.', 'info');
       if (!isNight(s)) return flash(s, 'Solo se duerme con las luces apagadas (22:00).', 'info');
+      if (s.mode === 'noche') return flash(s, 'Esta noche no se duerme: tienes hasta las 06:00 para escapar.', 'warn');
       p.sleep = true; return say(s, 'Duermes… (el tiempo pasa rápido; muévete para despertar)', 'info');
     case 'escondite': s.pending = { kind: 'escondite' }; return;
     case 'casillero': return toggleHide(s);
@@ -630,13 +659,15 @@ export function interact(s) {
     case 'palanca':
       if (!s.final) return flash(s, `${s.L.labels.palanca}. Solo sirve al momento de irse.`, 'info');
       if (s.final.lever) return flash(s, `¡Listo! Corre a: ${s.L.labels.asiento}.`, 'ok');
+      if (s.route === 'motin') { s.final.lever = true; return flash(s, `Tu tripulación tira de la palanca contigo. ¡Corre a: ${s.L.labels.asiento}!`, 'ok'); }
       if (!has(s, 'llave')) return flash(s, `Necesitas: ${itemName(s, 'llave')}.`, 'warn');
       s.pending = { kind: 'protocolo', id: s.L.finalProto }; return;
     case 'asiento':
       if (s.final?.lever) return win(s);
       if (s.final) return flash(s, `Primero ve a la ${s.L.labels.palanca} (${roomName(s, 'nodo')}).`, 'warn');
-      if (!planDone(s)) return flash(s, 'Te falta: ' + PLAN_IDS.filter((x) => !has(s, x)).map((x) => itemName(s, x)).join(', ') + '.', 'warn');
-      return startFinal(s);
+      { const r = routes(s).find((x) => x.ok);
+        if (!r) return flash(s, 'Aún no puedes irte. Rutas: ' + routes(s).map((x) => `${x.name}: ${x.desc}`).join(' · '), 'warn');
+        s.route = r.id; return startFinal(s); }
   }
 }
 
@@ -645,6 +676,7 @@ function start(s, kind, need, o) { s.action = { kind, need, t: 0, o }; }
 function finishAction(s, a) {
   const p = s.p; const o = a.o;
   if (a.kind === 'cajon') {
+    if (rand(s) < 0.3 && findNote(s)) return;
     if (!o.loot.length) return say(s, 'Cajón vacío. Se vuelve a llenar cada mañana.', 'info');
     const got = []; while (o.loot.length && p.inv.length < capacity(s)) { const it = o.loot.shift(); p.inv.push(it); got.push(ITEMS[it].name); }
     if (got.length) say(s, 'Encontraste: ' + got.join(', ') + '.', 'ok'); else flash(s, 'Llevas las manos llenas. Suelta algo con G.', 'warn');
@@ -654,6 +686,33 @@ function finishAction(s, a) {
   else if (a.kind === 'caja') { if (give(s, 'celda')) { o.used = true; flash(s, `¡Conseguiste: ${itemName(s, 'celda').toUpperCase()}!`, 'ok'); } }
 }
 
+/** Historia: encuentra la siguiente nota que aún no conoces de este destino. */
+export function findNote(s) {
+  const all = NOTES[s.loc] ?? []; const i = all.findIndex((_, k) => !s.seen.includes(k) && !s.notes.includes(k));
+  if (i < 0) return false;
+  s.notes.push(i); (s.sfx ??= []).push('nota');
+  flash(s, `📄 Encontraste una nota: «${all[i][0]}». Léela en la mochila (I).`, 'ok'); return true;
+}
+export const notesKnown = (s) => new Set([...s.seen, ...s.notes]).size;
+/** Rutas de escape: cada una con lo que pide y si ya está lista. */
+export function routes(s) {
+  const loyal = s.crew.filter((c) => c.trust >= 2 && !c.betrayed).length;
+  return [
+    { id: 'motin', name: 'Motín', desc: `Gánate a los 3 compañeros (2 favores cada uno; vas ${loyal}/3) y lleva ${itemName(s, 'codigo')} + ${itemName(s, 'celda')}. Ellos tiran de la palanca y frenan a los drones.`, ok: loyal === 3 && has(s, 'codigo') && has(s, 'celda') },
+    { id: 'sabotaje', name: 'Sabotaje', desc: `Apaga a ${s.L.ai} y despega a mano: solo ${itemName(s, 'codigo')} + ${itemName(s, 'llave')}.`, ok: !s.iaOn && has(s, 'codigo') && has(s, 'llave') },
+    { id: 'plan', name: 'Plan de regreso', desc: 'Las 4 piezas del plan.', ok: planDone(s) },
+  ];
+}
+/** Delatar a un compañero ante la IA: baja tu alerta y te premian, pero te deja solo. */
+export function betray(s) {
+  if (s.over || s.pending || !s.iaOn) return s.iaOn ? undefined : flash(s, `${s.L.ai} está apagada: no hay a quién delatar.`, 'info');
+  const c = s.crew.find((x) => !x.betrayed && Math.hypot(x.x - s.p.x, x.y - s.p.y) < 1.4);
+  if (!c) return flash(s, 'No hay ningún compañero cerca para delatar.', 'info');
+  c.betrayed = true; c.trust = -9; c.want = null; s.alert = Math.max(0, s.alert - 35);
+  const prize = has(s, 'tarjeta') ? 'chip' : 'tarjeta'; give(s, prize);
+  c.say = pick(s, ['¿Por qué...?', 'Confié en ti.', 'Esto no se olvida.']); c.sayFor = 5;
+  flash(s, `Delataste a ${c.name}. ${s.L.ai} te premió (−35 alerta y ${itemName(s, prize)}). ${c.name} ya no te ayudará… y le contará a la IA lo que te vea hacer.`, 'bad');
+}
 /** Resultado del minijuego de hackeo (memoria de código). */
 export function resolveCodigo(s, ok) {
   const pd = s.pending; s.pending = null; if (!pd) return;
@@ -740,6 +799,7 @@ export function useQ(s) {
 }
 
 export function hint(s) {
+  const r = routes(s).find((x) => x.ok); if (r && r.id !== 'plan') return `Tierra (señal débil): "Ruta ${r.name.toUpperCase()} lista. Ve a: ${s.L.labels.asiento}."`;
   const miss = PLAN_IDS.find((id) => !has(s, id));
   if (!miss) return `Tierra (señal débil): "Tienes todo. Ve a: ${s.L.labels.asiento}, y prepárate para correr."`;
   return `Tierra (señal débil): "Te falta ${itemName(s, miss)}. ${s.L.plan[miss].hint}"`;
@@ -748,6 +808,7 @@ export function hint(s) {
 // ---------- final ----------
 function startFinal(s) {
   s.final = { t: s.iaOn ? s.L.finalTime : s.L.finalTime + 45, lever: false, doorT: 0 };
+  if (s.route === 'motin') { s.final.t += 30; for (const d of s.drones) d.stun = 40; for (const c of s.crew) c.say = '¡AHORA! ¡Nos vamos todos!'; }
   flash(s, s.iaOn ? `¡${s.L.ai} TE DESCUBRIÓ! ${s.final.t} s: ve a la ${s.L.labels.palanca} (${roomName(s, 'nodo')}) y vuelve.` : `Con ${s.L.ai} apagada vas más tranquilo: ve a la ${s.L.labels.palanca} y vuelve.`, 'bad');
 }
 function updateFinal(s, dt) {
@@ -758,6 +819,11 @@ function updateFinal(s, dt) {
 function win(s) {
   let stars = 1; if (!s.iaOn) stars++; if (s.alert < 50 && s.integ >= 50) stars++;
   const k = !s.iaOn ? 0 : s.alert < 50 ? 1 : 2;
-  end(s, true, ['Base recuperada', 'Regreso silencioso', 'Por los pelos'][k], `${s.L.win[k]} Día ${s.day}, ${clock(s.min)}.`, stars);
+  const ROUTE = { motin: 'MOTÍN: la tripulación entera se levantó contigo. ', sabotaje: 'SABOTAJE: despegaste a mano, sin piloto automático. ', plan: '' };
+  const traitor = s.crew.filter((c) => c.betrayed).map((c) => c.name);
+  const crewEnd = traitor.length ? ` Te fuiste sin ${traitor.join(' ni ')}: nunca supiste qué fue de ${traitor.length > 1 ? 'ellos' : 'ese compañero'}.` : s.crew.every((c) => c.trust >= 2) ? ' Toda la tripulación volvió contigo.' : '';
+  const trueEnd = notesKnown(s) >= (NOTES[s.loc]?.length ?? 99);
+  end(s, true, trueEnd ? 'Final verdadero' : ['Base recuperada', 'Regreso silencioso', 'Por los pelos'][k], `${ROUTE[s.route] ?? ''}${s.L.win[k]}${crewEnd} ${s.mode === 'noche' ? 'Hora' : 'Día ' + s.day + ','} ${clock(s.min)}.${trueEnd ? ' ' + TRUE_END[s.loc] : ''}`, stars);
+  s.over.route = s.route; s.over.trueEnd = trueEnd;
 }
 function end(s, won, title, text, stars = 0) { if (!s.over) s.over = { won, title, text, stars }; }
