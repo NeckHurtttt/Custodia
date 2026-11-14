@@ -472,6 +472,7 @@ function hud() {
   $('inv').innerHTML = Array.from({ length: cap }, (_, i) => (p.inv[i] ? slot(p.inv[i]) : '<div class="slot vacio"></div>')).join('');
   $('plan').innerHTML = G.PLAN_IDS.map((id) => `<li class="${G.has(s, id) ? 'ok' : ''}" title="${L.plan[id].hint}">${L.plan[id].name}</li>`).join('') + `<li class="${s.iaOn ? '' : 'ok'}" title="Opcional: núcleo de la IA con tarjeta y 50 de conocimiento.">(Opcional) Apagar a ${L.ai}</li>` + G.routes(s).filter((r) => r.id !== 'plan').map((r) => `<li class="ruta ${r.ok ? 'ok' : ''}" title="${r.desc}">Ruta ${r.name}${r.ok ? ' ✓' : ''}</li>`).join('');
   $('crew').innerHTML = s.crew.map((c) => `<li><b style="color:${c.color}">■</b> ${c.name} ${c.betrayed ? '💔' : '♥'.repeat(Math.max(0, Math.min(2, c.trust))) + '♡'.repeat(Math.max(0, 2 - c.trust))}: ${c.betrayed ? '<span style="color:var(--red)">te delata</span>' : c.want ? `pide <span title="${ITEMS[c.want].name}">${icon(c.want)} ${ITEMS[c.want].name}</span>` : 'contento'}</li>`).join('');
+  dock();
   const v = s.vil;
   if (v) {
     const th = v.today.map((id, i) => `<li class="${i === 0 ? 'ia' : ''}">${i === 0 && !s.iaOn ? '<s>' + VILLAINS[id].name + '</s>' : VILLAINS[id].name}<small>${VILLAINS[id].desc}</small></li>`).join('')
@@ -483,6 +484,30 @@ function hud() {
   const av = $('aviso');
   if (s.msg) { av.hidden = false; av.textContent = s.msg.text; av.className = s.msg.kind; } else av.hidden = true;
 }
+
+// Mochila siempre visible debajo del mapa: tarjetas que entran animadas, plan y rutas en vivo.
+let dockPrev = { inv: [] }; const dockNew = [];
+function dock() {
+  const p = s.p; const L = s.L; const cap = G.capacity(s);
+  const now = performance.now(); p.inv.forEach((x, i) => { if (dockPrev.inv[i] !== x) dockNew[i] = now; });
+  const card = (id, i) => { const d = ITEMS[id]; const nuevo = now - (dockNew[i] ?? -1e9) < 600; return `<div class="dk-it ${d.plan ? 'plan' : d.tool ? 'tool' : ''} ${nuevo ? 'nuevo' : ''}" style="--i:${i}">${icon(id)}<span><b>${G.itemName(s, id)}</b><small>${d.plan ? 'Pieza del plan' : d.tool ? 'Herramienta · ¡cuidado!' : 'Pieza · T para lanzar'}</small></span>${!(id in L.plan) ? `<button class="dk-x" data-soltar="${i}" title="Soltar">✕</button>` : ''}</div>`; };
+  const slots = Array.from({ length: cap }, (_, i) => (p.inv[i] ? card(p.inv[i], i) : `<div class="dk-it vacio" style="--i:${i}"></div>`)).join('');
+  const got = G.PLAN_IDS.filter((id) => G.has(s, id)).length;
+  const plan = G.PLAN_IDS.map((id) => `<li class="${G.has(s, id) ? 'ok' : ''}" title="${L.plan[id].hint}">${icon(id)}<span>${L.plan[id].name}</span></li>`).join('');
+  const rts = G.routes(s).map((r) => `<li class="${r.ok ? 'ok' : ''}" title="${r.desc}">${r.ok ? '▶' : '·'} ${r.name}</li>`).join('');
+  const cb = p.inv.filter(G.isContraband).length;
+  const html = `<div class="dk-col dk-bolsa"><h3>🎒 MOCHILA <small>${p.inv.length}/${cap}</small>${cb >= 2 ? '<em class="dk-ojo">⚠ ' + cb + ' herramientas: riesgo en el pase de lista</em>' : ''}</h3><div class="dk-items">${slots}</div>
+    <p class="dk-esc">Escondite: ${s.stash.length}/${G.STASH_MAX}${s.stash.length ? ' · ' + s.stash.slice(0, 6).map((x) => icon(x)).join('') : ''}</p></div>
+    <div class="dk-col dk-plan"><h3>PLAN <small>${got}/${G.PLAN_IDS.length}</small></h3><div class="dk-prog"><i style="width:${got / G.PLAN_IDS.length * 100}%"></i></div><ul>${plan}</ul></div>
+    <div class="dk-col dk-rutas"><h3>RUTAS</h3><ul>${rts}</ul></div>`;
+  const el = $('dock');
+  if (el.dataset.h !== html) {
+    el.innerHTML = html; el.dataset.h = html;
+    if (got > (dockPrev.got ?? got)) { el.classList.remove('festeja'); void el.offsetWidth; el.classList.add('festeja'); }
+  }
+  dockPrev = { inv: [...p.inv], got };
+}
+$('dock').addEventListener('click', (e) => { const b = e.target.closest('[data-soltar]'); if (b && s && !menu) { G.dropItem(s, +b.dataset.soltar); beep(300, 0.06); } });
 
 // Íconos de piezas en pixel art (SVG chico).
 const ICON = {

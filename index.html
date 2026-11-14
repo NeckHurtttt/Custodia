@@ -18,10 +18,13 @@
   <button id="btn-menu" title="Pausa y menú (Esc)">⏸ MENÚ [Esc]</button>
 </header>
 <main class="juego">
+  <div class="izq">
   <section class="pantalla">
     <canvas id="lienzo" width="832" height="468"></canvas>
     <div id="aviso" hidden></div>
   </section>
+  <section class="dock" id="dock"></section>
+  </div>
   <aside class="panel">
     <div class="caja">
       <h3 id="t-alerta">IA · ALERTA</h3>
@@ -31,9 +34,9 @@
     </div>
     <div class="caja amenazas"><h3>AMENAZAS DE HOY</h3><ul id="amenazas"></ul></div>
     <div class="caja stats" id="stats"></div>
-    <div class="caja"><h3>INVENTARIO <small id="cap"></small></h3><div id="inv" class="inv"></div>
+    <div class="caja"><h3>ACCIONES <small id="cap" hidden></small></h3><div id="inv" class="inv" hidden></div>
       <div class="botones"><button id="btn-mochila">[I] MOCHILA</button><button id="btn-fabricar">[C] FABRICAR</button><button id="btn-usar">[Q] INHIBIR</button></div></div>
-    <div class="caja"><h3>PLAN DE REGRESO</h3><ul id="plan" class="plan"></ul></div>
+    <ul id="plan" class="plan" hidden></ul>
     <div class="caja"><h3>TRIPULACIÓN</h3><ul id="crew" class="crew"></ul></div>
     <div class="caja"><h3>REGISTRO</h3><ul id="log" class="log"></ul></div>
   </aside>
