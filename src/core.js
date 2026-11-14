@@ -7,7 +7,7 @@ import { LOCS } from './locs.js';
 import * as V from './villains.js';
 
 export const DAYS = 10;
-export const MIN_PER_SEC = 4;          // 1 s real = 4 min de juego
+export const MIN_PER_SEC = 5.5;        // 1 s real = 5,5 min de juego (ritmo frenético)
 export const SLEEP_MULT = 10;
 const VIEW = 6.5, FOV = Math.PI / 3.6;   // vigilancia: alcance (casillas) y medio ángulo
 const N4 = [[1, 0], [-1, 0], [0, 1], [0, -1]];
@@ -147,7 +147,7 @@ function setupNight(s) {
   s.events = [1350 + Math.floor(rand(s) * 200)];
   say(s, `En tu escondite ya tienes: ${got.map((i) => itemName(s, i)).join(' y ')}.`, 'ok');
 }
-export const NIGHT_SPEED = 0.3125; // en UNA NOCHE el reloj va más lento: 9 h ≈ 7 min
+export const NIGHT_SPEED = 4 * 0.3125 / 5.5; // en UNA NOCHE el reloj va más lento: 9 h ≈ 7 min
 /** Después de cargar una partida guardada: vuelve a armar lo que no se guarda. */
 export function revive(o) {
   o.L = LOCS[o.loc]; const map = buildMap(o.L);
@@ -181,7 +181,7 @@ export const flash = (s, text, kind = 'info') => { s.msg = { text, kind, t: 3.2 
 export const itemName = (s, id) => s.L.plan[id]?.name ?? ITEMS[id]?.name ?? id;
 
 function refill(s) { for (const o of s.objects) if (o.t === 'cajon') { o.loot = []; const n = rand(s) < 0.75 ? 1 + (rand(s) < 0.35 ? 1 : 0) : 0; for (let k = 0; k < n; k++) o.loot.push(pickWeighted(s, LOOT)); } }
-function planEvents(s) { const n = s.day < 2 ? 0 : s.day < 5 ? 1 : 2; s.events = Array.from({ length: n }, () => 480 + Math.floor(rand(s) * 780)).sort((a, b) => a - b); }
+function planEvents(s) { const n = s.day < 2 ? 1 : s.day < 5 ? 2 : 3; s.events = Array.from({ length: n }, () => 480 + Math.floor(rand(s) * 780)).sort((a, b) => a - b); }
 function newWants(s) { for (const c of s.crew) { c.want = pickWeighted(s, LOOT); c.reward = pick(s, ['conoc', 'fuerza', 'pieza', 'pieza', 'chip']); } }
 
 // ---------- jugador ----------
@@ -281,7 +281,7 @@ export function update(s, dt, input = { dx: 0, dy: 0 }) {
   if (moving && !p.sleep) {
     s.action = null;
     const len = Math.hypot(input.dx, input.dy);
-    let sp = (p.energia <= 0 ? 1.8 : 3.6) * (p.crouch ? 0.52 : 1) * (perk(s).speed ?? 1) * dt;
+    let sp = (p.energia <= 0 ? 2.2 : 4.4) * (p.crouch ? 0.52 : 1) * (perk(s).speed ?? 1) * dt;
     if (slowHere(s)) sp *= 0.5;
     p.dir = Math.atan2(input.dy, input.dx); p.walk += dt;
     moveBody(s, p, (input.dx / len) * sp, (input.dy / len) * sp, 0.28, 'p');
@@ -359,7 +359,7 @@ function updateDrones(s, dt) {
     else if (front && d.route !== 0) { const r = s.L.rooms.find((x) => x.id === 'ia'); goal = [r.x + 2.5, r.y + 2.5]; }
     else if (haz && d.route !== 0) goal = [haz.x, haz.y];
     else { const r = s.L.routes[d.route % s.L.routes.length]; let w = r[d.wp % r.length]; if (Math.hypot(w[0] + 0.5 - d.x, w[1] + 0.5 - d.y) < 0.6) { d.wp = (d.wp + 1) % r.length; w = r[d.wp]; } goal = [w[0] + 0.5, w[1] + 0.5]; }
-    follow(s, d, goal, (d.chasing ? 3.4 : d.mode === 'patrulla' ? 2.0 : 2.6) * (s.final ? 1.2 : 1) * dif(s).spd, dt, 'd');
+    follow(s, d, goal, (d.chasing ? 4.0 : d.mode === 'patrulla' ? 2.4 : 3.1) * (s.final ? 1.2 : 1) * dif(s).spd, dt, 'd');
     if (d.mode === 'persigue' && sees) d.dir = Math.atan2(p.y - d.y, p.x - d.x);
     // buscar en el escondite donde te vio meterte
     if (d.mode === 'busca' && Math.hypot(d.target[0] - d.x, d.target[1] - d.y) < 1.3) {
