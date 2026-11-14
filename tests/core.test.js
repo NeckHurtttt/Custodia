@@ -102,7 +102,7 @@ test('el pase de lista confisca si llevas 2 o más herramientas', () => {
 });
 
 test('incendio: crece y el protocolo correcto lo apaga', () => {
-  const s = fresh(); s.drones = []; s.min = 900;
+  const s = fresh(); s.drones = []; s.events = []; if (s.vil) s.vil.events = []; s.min = 900;
   const h = G.spawnHazard(s, 'fuego', 'taller');
   for (let i = 0; i < 40; i++) G.update(s, 0.25);
   assert.ok(h.tiles.length > 1);

@@ -39,7 +39,7 @@ const THEMES = {
   luna: { void: '#3a3a3e', floor: '#2b2a2e', floor2: '#323136', line: '#3d3c42', wall: '#6d6a66', wallTop: '#9c978f', wallDark: '#3a3835', corr: '#262529', danger: '#2c1719', out: '#77777b' },
   marte: { void: '#5e2a18', floor: '#33281f', floor2: '#3a2e24', line: '#47382b', wall: '#8a6a52', wallTop: '#b8957a', wallDark: '#4a3528', corr: '#2d241c', danger: '#3a1a16', out: '#9a4a2a' },
 };
-const ROOM_TINT = { dorm: '#24314a', comedor: '#2f2a22', gym: '#23302a', lab: '#1f2f38', mando: '#22283a', taller: '#2e2a26', inver: '#1d3322', ia: '#3a1416', bodega: '#2c2a24', esclusa: '#30302a', capsula: '#2a2a36', generador: '#2e2c1c', refugio: '#2a2236' };
+const ROOM_TINT = { cupula: '#16233a', enfermeria: '#2a3640', comms: '#1d2a30', mina: '#22323c', hangar: '#2e2a22', dorm: '#24314a', comedor: '#2f2a22', gym: '#23302a', lab: '#1f2f38', mando: '#22283a', taller: '#2e2a26', inver: '#1d3322', ia: '#3a1416', bodega: '#2c2a24', esclusa: '#30302a', capsula: '#2a2a36', generador: '#2e2c1c', refugio: '#2a2236' };
 
 // ---------- capa fija del mundo (piso, paredes, objetos) ----------
 let base = null; let baseLoc = null;
@@ -71,12 +71,30 @@ function drawBase() {
       continue;
     }
     b.fillStyle = r ? (r.restricted ? T.danger : ROOM_TINT[r.kind] ?? T.floor) : T.corr; b.fillRect(px, py, TS, TS);
-    b.fillStyle = 'rgba(255,255,255,.035)'; b.fillRect(px + 1, py + 1, TS - 2, TS - 2);
-    b.fillStyle = 'rgba(0,0,0,.25)'; b.fillRect(px, py + TS - 1, TS, 1); b.fillRect(px + TS - 1, py, 1, TS);
-    if (!r) { b.fillStyle = 'rgba(255,200,60,.12)'; if ((x + y) % 2) b.fillRect(px + 6, py + 6, 4, 4); }
+    floorTex(b, r ? (r.restricted ? 'ia' : r.kind) : 'corr', x, y, px, py);
     if (r?.kind === 'inver' && (x + y) % 3 === 0) { b.fillStyle = 'rgba(80,160,80,.12)'; b.fillRect(px + 2, py + 2, 12, 12); }
     if (r?.kind === 'refugio') { b.fillStyle = 'rgba(160,120,255,.08)'; b.fillRect(px, py, TS, TS); }
   }
+  // sombras que proyectan las paredes sobre el piso (luz cenital desde arriba a la izquierda)
+  for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
+    if (!at(x, y) || L.rooms[s.map.room[y * W + x]]?.outside) continue; const px = x * TS, py = y * TS;
+    if (!at(x, y - 1)) { const g2 = b.createLinearGradient(0, py, 0, py + 9); g2.addColorStop(0, 'rgba(0,0,0,.55)'); g2.addColorStop(1, 'rgba(0,0,0,0)'); b.fillStyle = g2; b.fillRect(px, py, TS, 9); }
+    if (!at(x - 1, y)) { const g2 = b.createLinearGradient(px, 0, px + 6, 0); g2.addColorStop(0, 'rgba(0,0,0,.4)'); g2.addColorStop(1, 'rgba(0,0,0,0)'); b.fillStyle = g2; b.fillRect(px, py, 6, TS); }
+    if (!at(x + 1, y)) R(b, 'rgba(255,255,255,.04)', px + TS - 2, py, 2, TS);
+  }
+  // luz de colores de cada sala (lámparas del techo)
+  b.save(); b.globalCompositeOperation = 'lighter';
+  for (const r of L.rooms) {
+    if (r.outside) continue; const c = r.restricted ? [255, 40, 40] : LIGHT[r.kind] ?? [120, 170, 255];
+    const lamps = Math.max(1, Math.round(r.w / 5));
+    for (let i = 0; i < lamps; i++) {
+      const lx = (r.x + (i + 0.5) * r.w / lamps) * TS, ly = (r.y + r.h * 0.45) * TS, rad = Math.max(r.h, r.w / lamps) * TS * 0.75;
+      const g2 = b.createRadialGradient(lx, ly, 2, lx, ly, rad); g2.addColorStop(0, `rgba(${c},.20)`); g2.addColorStop(0.5, `rgba(${c},.07)`); g2.addColorStop(1, `rgba(${c},0)`);
+      b.fillStyle = g2; b.fillRect(r.x * TS, r.y * TS, r.w * TS, r.h * TS);
+      R(b, `rgba(${c},.9)`, lx - 3, r.y * TS + 1, 6, 2);
+    }
+  }
+  b.restore();
   // cráteres y rocas en el exterior
   const ext = L.rooms.find((r) => r.outside);
   if (ext) for (let i = 0; i < 26; i++) {
@@ -100,11 +118,35 @@ function drawBase() {
   // nombres de las salas
   b.font = '10px VT323'; b.textBaseline = 'top';
   for (const r of L.rooms) { b.fillStyle = 'rgba(0,0,0,.45)'; const w = b.measureText(r.name.toUpperCase()).width; b.fillRect(r.x * TS + 2, r.y * TS + 1, w + 4, 10); b.fillStyle = r.restricted ? '#ff6b6b' : r.outside ? '#ffffff' : '#dfe6f2'; b.fillText(r.name.toUpperCase(), r.x * TS + 4, r.y * TS + 1); }
-  // objetos fijos
+  // objetos fijos con su sombra
+  for (const o of s.objects) { b.fillStyle = 'rgba(0,0,0,.35)'; b.beginPath(); b.ellipse(o.x * TS + 9, o.y * TS + 14, 7, 2.5, 0, 0, 7); b.fill(); }
   for (const o of s.objects) drawObj(b, o, L.theme);
 }
 
 function R(b, c, x, y, w, h) { b.fillStyle = c; b.fillRect(x, y, w, h); }
+const LIGHT = { dorm: [140, 160, 255], comedor: [255, 190, 110], gym: [120, 255, 170], lab: [120, 230, 255], mando: [110, 150, 255], taller: [255, 170, 80], inver: [140, 255, 120], bodega: [255, 210, 140], esclusa: [255, 220, 90], capsula: [200, 180, 255], generador: [255, 230, 80], refugio: [190, 120, 255], cupula: [90, 140, 255], enfermeria: [200, 255, 240], comms: [90, 255, 200], mina: [150, 230, 255], hangar: [255, 160, 60] };
+// Texturas del piso según el tipo de sala (pixel art procedural, sin imágenes).
+function floorTex(b, k, x, y, px, py) {
+  const h = hashRand(x * 73 + y * 151); const A = (a) => `rgba(255,255,255,${a})`, D = (a) => `rgba(0,0,0,${a})`;
+  switch (k) {
+    case 'dorm': R(b, D(.12), px, py, TS, TS); for (let i = 0; i < 6; i++) R(b, A(.035), px + (hashRand(h * 9 + i) * 15 | 0), py + (hashRand(h * 7 + i) * 15 | 0), 1, 1); R(b, D(.2), px, py + TS - 1, TS, 1); break; // alfombra
+    case 'comedor': R(b, (x + y) % 2 ? A(.05) : D(.1), px, py, TS, TS); R(b, D(.25), px, py + TS - 1, TS, 1); R(b, D(.25), px + TS - 1, py, 1, TS); break; // baldosas en damero
+    case 'gym': R(b, D(.1), px, py, TS, TS); R(b, 'rgba(120,255,170,.06)', px + 1, py + 1, TS - 2, TS - 2); if (x % 4 === 0) R(b, 'rgba(255,255,255,.12)', px, py, 1, TS); break; // goma con líneas
+    case 'lab': case 'enfermeria': R(b, A(k === 'enfermeria' ? .09 : .06), px + 1, py + 1, TS - 2, TS - 2); R(b, D(.3), px, py + TS - 1, TS, 1); R(b, D(.3), px + TS - 1, py, 1, TS); if (k === 'enfermeria' && (x + y * 3) % 7 === 0) { R(b, 'rgba(255,90,90,.35)', px + 6, py + 3, 4, 10); R(b, 'rgba(255,90,90,.35)', px + 3, py + 6, 10, 4); } break;
+    case 'taller': case 'hangar': R(b, A(.03), px, py, TS, TS); R(b, D(.35), px, py + TS - 1, TS, 1); R(b, D(.35), px + TS - 1, py, 1, TS); R(b, A(.18), px + 2, py + 2, 1, 1); R(b, A(.18), px + 13, py + 13, 1, 1); for (let i = 0; i < 3; i++) R(b, D(.15), px + 4 + i * 3, py + 5 + (i % 2) * 4, 2, 1); if (k === 'hangar' && y % 6 === 0) for (let i = 0; i < 4; i++) R(b, i % 2 ? '#1a1408' : 'rgba(255,190,40,.35)', px + i * 4, py + 6, 4, 4); if (h > 0.93) R(b, 'rgba(0,0,0,.35)', px + 4, py + 4, 7, 5); break; // chapa con remaches y manchas de aceite
+    case 'mando': case 'comms': R(b, D(.15), px, py, TS, TS); R(b, k === 'comms' ? 'rgba(90,255,200,.10)' : 'rgba(110,150,255,.12)', px, py + 7, TS, 1); R(b, k === 'comms' ? 'rgba(90,255,200,.10)' : 'rgba(110,150,255,.12)', px + 7, py, 1, TS); if (h > 0.7) R(b, k === 'comms' ? 'rgba(90,255,200,.5)' : 'rgba(110,150,255,.5)', px + 7, py + 7, 1, 1); break; // rejilla técnica / circuitos
+    case 'inver': R(b, 'rgba(60,40,20,.35)', px, py, TS, TS); for (let i = 0; i < 5; i++) R(b, `rgba(${90 + (hashRand(h + i) * 80 | 0)},${170 + (hashRand(h * 3 + i) * 70 | 0)},90,.35)`, px + (hashRand(h * 5 + i) * 14 | 0), py + (hashRand(h * 11 + i) * 13 | 0), 1, 3); break; // tierra y brotes
+    case 'bodega': R(b, (y % 2 ? A(.03) : D(.08)), px, py, TS, TS); R(b, D(.3), px + ((y % 2) * 8), py, 1, TS); R(b, D(.2), px, py + TS - 1, TS, 1); break; // tablones
+    case 'esclusa': case 'capsula': R(b, D(.1), px, py, TS, TS); for (let i = 0; i < TS; i += 4) R(b, A(.05), px + i, py, 2, TS); if (x % 3 === 0 && y % 3 === 0) R(b, 'rgba(255,220,90,.3)', px + 6, py + 6, 3, 3); break;
+    case 'generador': R(b, D(.12), px, py, TS, TS); if ((x + y) % 4 === 0) for (let i = 0; i < 4; i++) R(b, i % 2 ? '#1a1408' : 'rgba(255,220,60,.25)', px + i * 4, py, 4, 3); R(b, A(.04), px + 1, py + 4, TS - 2, TS - 5); break;
+    case 'refugio': R(b, 'rgba(160,120,255,.08)', px, py, TS, TS); R(b, D(.3), px, py + TS - 1, TS, 1); if ((x * 7 + y) % 9 === 0) R(b, 'rgba(190,140,255,.4)', px + 5, py + 5, 6, 6); break;
+    case 'cupula': R(b, 'rgba(0,10,40,.5)', px, py, TS, TS); for (let i = 0; i < 3; i++) R(b, A(.25 + hashRand(h + i) * .5), px + (hashRand(h * 13 + i) * 15 | 0), py + (hashRand(h * 17 + i) * 15 | 0), 1, 1); R(b, 'rgba(120,170,255,.18)', px, py, TS, 1); R(b, 'rgba(120,170,255,.18)', px, py, 1, TS); break; // vidrio con estrellas
+    case 'mina': R(b, 'rgba(180,230,255,.08)', px, py, TS, TS); if (h > 0.6) R(b, 'rgba(220,245,255,.25)', px + (h * 10 | 0), py + 3, 4, 1); if (h < 0.2) R(b, 'rgba(0,30,60,.3)', px + 3, py + 9, 7, 2); break; // hielo
+    case 'ia': R(b, 'rgba(255,40,40,.05)', px, py, TS, TS); R(b, 'rgba(255,60,60,.18)', px, py + 7, TS, 1); if (h > 0.85) R(b, 'rgba(255,80,80,.6)', px + 7, py + 7, 2, 1); R(b, D(.3), px + TS - 1, py, 1, TS); break;
+    case 'corr': R(b, D(.15), px, py, TS, TS); R(b, A(.05), px + 1, py + 1, TS - 2, TS - 2); if ((x + y) % 2) R(b, 'rgba(255,200,60,.14)', px + 6, py + 6, 4, 4); R(b, D(.3), px, py + TS - 1, TS, 1); break;
+    default: R(b, A(.035), px + 1, py + 1, TS - 2, TS - 2); R(b, D(.25), px, py + TS - 1, TS, 1); R(b, D(.25), px + TS - 1, py, 1, TS);
+  }
+}
 function drawObj(b, o, theme) {
   const x = o.x * TS, y = o.y * TS;
   switch (o.t) {
@@ -148,6 +190,7 @@ function astro(ctx, x, y, dir, phase, shirt, moving, alpha = 1, key = 'yo', suit
   ctx.globalAlpha = alpha;
   const L = looks(key); const O = '#0b0d14';
   const px = Math.round(x * TS), py = Math.round(y * TS);
+  ctx.fillStyle = 'rgba(0,0,0,.4)'; ctx.beginPath(); ctx.ellipse(px, py + 7, 5, 2, 0, 0, 7); ctx.fill();
   const f = Math.abs(Math.cos(dir)) > Math.abs(Math.sin(dir)) ? (Math.cos(dir) > 0 ? 'r' : 'l') : (Math.sin(dir) > 0 ? 'd' : 'u');
   const step = moving ? Math.round(Math.sin(phase * 14)) : 0;
   R(ctx, 'rgba(0,0,0,.3)', px - 5, py + 5, 10, 3);
@@ -177,6 +220,7 @@ function astro(ctx, x, y, dir, phase, shirt, moving, alpha = 1, key = 'yo', suit
 function suitSprite(ctx, x, y, dir, phase, stripe, moving, alpha = 1) {
   ctx.globalAlpha = alpha;
   const px = Math.round(x * TS), py = Math.round(y * TS);
+  ctx.fillStyle = 'rgba(0,0,0,.4)'; ctx.beginPath(); ctx.ellipse(px, py + 7, 5, 2, 0, 0, 7); ctx.fill();
   const f = Math.abs(Math.cos(dir)) > Math.abs(Math.sin(dir)) ? (Math.cos(dir) > 0 ? 'r' : 'l') : (Math.sin(dir) > 0 ? 'd' : 'u');
   const step = moving ? Math.round(Math.sin(phase * 14)) : 0;
   R(ctx, 'rgba(0,0,0,.3)', px - 5, py + 5, 10, 3);
