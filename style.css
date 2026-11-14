@@ -166,3 +166,8 @@ kbd { border: 1px solid var(--line); padding: 0 .3rem; color: var(--amber); }
 .hudbar { grid-template-columns: 170px minmax(0, 1fr) 150px; }
 .hudbar .stats { grid-template-columns: none; grid-auto-flow: column; grid-auto-columns: minmax(0, 1fr); gap: .4rem; }
 .hb-acc { flex-direction: column; } .hb-acc button { padding: .15rem .4rem; font-size: .95rem; display: flex; justify-content: space-between; }
+
+/* cooperativo */
+.dk-jug { margin-bottom: .35rem; } .dk-jug > b { display: inline-block; font-weight: normal; color: var(--pc); border-left: 3px solid var(--pc); padding-left: .3rem; margin-bottom: .2rem; }
+.st-k b i { font-style: normal; margin-left: .25rem; } .st .barrita + .barrita { margin-top: 2px; }
+.st .barrita { grid-column: 2; } .st-ic { grid-row: 1 / span 3; }

@@ -149,7 +149,7 @@ function wants(s, w) {
 export function spotted(s, who) { if (s.vil) s.vil.spot++; sfx(s, 'visto'); who.alarmT = 1.2; }
 
 function updateWalker(s, w, dt) {
-  const d = VILLAINS[w.vid]; const p = s.p;
+  const d = VILLAINS[w.vid]; const p = C.focus(s, w);
   if (d.window) {
     const inWin = s.min >= w.from && s.min < w.to;
     if (inWin && w.away) { w.away = false; const r = room(s, 'nodo'); [w.x, w.y] = tileIn(s, r); C.flash(s, `Llegó la nave de carga con ${d.name} (hasta las ${C.clock(w.to)}). Esconde tus herramientas.`, 'bad'); sfx(s, 'alarma'); }
@@ -199,7 +199,7 @@ export function caughtBy(s, w) {
 }
 
 function updateSnitch(s, w, dt) {
-  const d = VILLAINS[w.vid]; const p = s.p; w.moving = false; w.cd = Math.max(0, w.cd - dt);
+  const d = VILLAINS[w.vid]; const p = C.focus(s, w); w.moving = false; w.cd = Math.max(0, w.cd - dt);
   const dd = Math.hypot(p.x - w.x, p.y - w.y);
   if (d.mode === 'ladron') {
     if (w.loot) { // huye a un cajón para esconder lo robado

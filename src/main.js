@@ -7,12 +7,13 @@ import * as G from './core.js';
 import { VILLAINS } from './villains.js';
 import * as M from './music.js';
 
-const TS = 16, ZOOM = 2;
+const TS = 16; let ZOOM = 2;
 const cv = document.getElementById('lienzo'); const cx = cv.getContext('2d');
-const VW = cv.width / ZOOM, VH = cv.height / ZOOM; // vista en píxeles del mundo
+let VW = cv.width / ZOOM, VH = cv.height / ZOOM; // vista en píxeles del mundo (cambia con el zoom en cooperativo)
 const $ = (id) => document.getElementById(id);
 let s = null; let menu = null; let last = performance.now(); let hudT = 0; let saveT = 0;
-const keys = new Set(); const touch = { dx: 0, dy: 0 };
+const keys = new Set(); const codes = new Set(); const touch = { dx: 0, dy: 0 };
+const PCOL = ['#3d7bff', '#ff8a3d'], PNAME = ['Comandante', 'Copiloto'];
 const cam = { x: 0, y: 0 };
 
 // ---------- guardado (una ranura por destino) ----------
@@ -258,8 +259,14 @@ function draw(t) {
   const L = s.L; const p = s.p;
   // cámara centrada en el jugador
   const ww = L.W * TS, wh = L.H * TS;
-  cam.x = ww <= VW ? (ww - VW) / 2 : Math.max(0, Math.min(ww - VW, p.x * TS - VW / 2));
-  cam.y = wh <= VH ? (wh - VH) / 2 : Math.max(0, Math.min(wh - VH, p.y * TS - VH / 2));
+  // en cooperativo la cámara mira el punto medio y se aleja para que entren los dos
+  const ps = s.ps ?? [p];
+  const fx = ps.reduce((a, q) => a + q.x, 0) / ps.length, fy = ps.reduce((a, q) => a + q.y, 0) / ps.length;
+  if (s.ps) { const spanX = Math.abs(ps[0].x - ps[1].x) * TS + 140, spanY = Math.abs(ps[0].y - ps[1].y) * TS + 110; const zt = Math.max(1, Math.min(2, cv.width / spanX, cv.height / spanY)); ZOOM += (zt - ZOOM) * 0.08; }
+  else ZOOM = 2;
+  VW = cv.width / ZOOM; VH = cv.height / ZOOM;
+  cam.x = ww <= VW ? (ww - VW) / 2 : Math.max(0, Math.min(ww - VW, fx * TS - VW / 2));
+  cam.y = wh <= VH ? (wh - VH) / 2 : Math.max(0, Math.min(wh - VH, fy * TS - VH / 2));
   cx.setTransform(1, 0, 0, 1, 0, 0); cx.imageSmoothingEnabled = false;
   cx.fillStyle = '#000'; cx.fillRect(0, 0, cv.width, cv.height);
   const sh = s.shake > 0 ? s.shake * 10 : 0; const sx = sh ? (Math.random() - 0.5) * sh : 0, sy = sh ? (Math.random() - 0.5) * sh : 0;
@@ -324,11 +331,17 @@ function draw(t) {
     if (d.alarmT > 0) { d.alarmT -= 0.016; cx.font = '14px VT323'; cx.fillStyle = '#ff3b3b'; cx.fillText('!', d.x * TS, d.y * TS - 14); }
     if (d.stun > 0 && s.iaOn) { cx.fillStyle = '#5ff6ff'; cx.font = '9px VT323'; cx.fillText(`${Math.ceil(d.stun)}`, d.x * TS, d.y * TS - 12); }
   }
-  // jugador
+  // jugadores
+  const pSave = s.p;
+  (s.ps ?? [p]).forEach((q, k) => { s.p = q; { const p = q;
   const blink = p.hit > 0 && Math.floor(t / 80) % 2;
   if (p.hidden) { cx.font = '9px VT323'; cx.fillStyle = '#9fd4ff'; cx.fillText('(escondido)', p.hidden.x * TS, p.hidden.y * TS - 14); R(cx, '#fff', p.hidden.x * TS - 3, p.hidden.y * TS - 2, 1, 1); R(cx, '#fff', p.hidden.x * TS + 2, p.hidden.y * TS - 2, 1, 1); }
-  else astro(cx, p.x, p.y + (p.crouch ? 0.12 : 0), p.dir, p.walk * (p.crouch ? 0.5 : 1), '#3d7bff', keys.size > 0 || touch.dx || touch.dy, p.inDuct ? 0.5 : blink ? 0.35 : p.crouch ? 0.8 : 1, 'Comandante', G.isOutside(s) && G.has(s, 'traje'));
+  else astro(cx, p.x, p.y + (p.crouch ? 0.12 : 0), p.dir, p.walk * (p.crouch ? 0.5 : 1), PCOL[k], q.down ? false : keys.size > 0 || touch.dx || touch.dy, p.inDuct ? 0.5 : blink ? 0.35 : p.crouch ? 0.8 : 1, PNAME[k], G.isOutside(s) && G.has(s, 'traje'));
   if (p.sleep) { cx.fillStyle = '#5ff6ff'; cx.font = '10px VT323'; cx.fillText('z', p.x * TS + 7, p.y * TS - 14 - (t / 300 % 4)); }
+    if (s.ps) { cx.font = '9px VT323'; cx.fillStyle = PCOL[k]; cx.fillText(`J${k + 1}`, p.x * TS, p.y * TS - 15); }
+    if (p.down) { cx.font = '10px VT323'; cx.fillStyle = Math.floor(t / 250) % 2 ? '#ff4b4b' : '#ffffff'; cx.fillText('¡CAÍDO! Levántame (E)', p.x * TS, p.y * TS - 24); }
+  } });
+  s.p = pSave;
 
   // luz: noche, tormenta, final
   const night = G.isNight(s); const st = G.storm(s);
@@ -352,9 +365,13 @@ function draw(t) {
   // globos de diálogo y texto de acción
   cx.font = '10px VT323';
   for (const c of s.crew) if (c.say && vis(c.x, c.y)) bubble(c.x * TS, c.y * TS - 18, `${c.name}: ${c.say}`, c.color);
-  const n = G.nearby(s)[0];
-  if (s.action) { const k = s.action.t / s.action.need; R(cx, '#0a0e17', p.x * TS - 12, p.y * TS - 20, 24, 4); R(cx, '#ffc23d', p.x * TS - 12, p.y * TS - 20, 24 * k, 4); }
-  else if (n && !p.sleep && !menu) bubble(p.x * TS, p.y * TS - 20, `[E] ${G.label(s, n)}`, '#ffffff');
+  (s.ps ?? [p]).forEach((q, k) => { const sv = s.p; s.p = q; const p = q;
+    const n = p.down ? null : G.nearby(s)[0]; const key = s.ps ? (k ? 'Enter' : 'E') : 'E';
+    const mate = s.ps?.find((o) => o !== q && o.down && Math.hypot(o.x - q.x, o.y - q.y) < 1.5);
+    if (s.action) { const f = s.action.t / s.action.need; R(cx, '#0a0e17', p.x * TS - 12, p.y * TS - 20, 24, 4); R(cx, '#ffc23d', p.x * TS - 12, p.y * TS - 20, 24 * f, 4); }
+    else if (mate && !menu) bubble(p.x * TS, p.y * TS - 20, `[${key}] Levantar a J${mate.id}`, '#4dff88');
+    else if (n && !p.sleep && !menu) bubble(p.x * TS, p.y * TS - 20, `[${key}] ${G.label(s, n)}`, s.ps ? PCOL[k] : '#ffffff');
+    s.p = sv; });
 
   // captura: anillo rojo al agarrarte y cadena hasta el que te lleva
   const es = s.escort;
@@ -527,7 +544,7 @@ function minimap() {
 function bar(v, low = 25) { return `<div class="barrita ${v < low ? 'bajo' : ''}"><i style="width:${Math.max(0, Math.min(100, v))}%"></i></div>`; }
 function slot(it) { const d = ITEMS[it]; return `<div class="slot ${d.plan ? 'plan' : d.tool ? 'tool' : ''}" title="${G.itemName(s, it)}${d.info ? ' — ' + d.info : ''}">${icon(it)}</div>`; }
 function hud() {
-  const p = s.p; const b = G.block(s); const L = s.L;
+  const p = s.ps ? s.ps[0] : s.p; const b = G.block(s); const L = s.L;
   $('dia').textContent = s.mode === 'noche' ? `${L.icon} ${s.daily ? 'RETO' : 'UNA NOCHE'} · ${G.dif(s).name.toUpperCase()} · ${Meta.fmtTime(s.t)}` : `${L.icon} DÍA ${s.day}/${G.DAYS} · ${G.dif(s).name.toUpperCase()}`;
   $('reloj').textContent = G.clock(s.min);
   const late = b.room && s.checked && G.playerRoom(s) !== b.room;
@@ -536,9 +553,11 @@ function hud() {
   $('t-alerta').textContent = `${L.ai} · ALERTA`;
   $('m-alerta').style.width = `${s.iaOn ? s.alert : 0}%`; $('m-alerta').parentElement.classList.toggle('alta', s.alert > 70);
   $('m-integ').style.width = `${Math.max(0, s.integ)}%`;
-  const rows = [['❤', 'SALUD', p.salud, 25, 'salud'], ['⚡', 'ENERGÍA', p.energia, 25, 'energia'], ['💪', 'FUERZA', p.fuerza, -1, 'fuerza'], ['🧠', 'CONOCIM.', p.conoc, -1, 'conoc']];
-  if (L.rooms.some((r) => r.outside)) rows.push(['O₂', 'OXÍGENO', p.o2, 35, 'o2']);
-  const sh = rows.map(([ic, k, v, low, c]) => `<div class="st st-${c} ${v < low ? 'bajo' : ''}"><span class="st-ic">${ic}</span><span class="st-k">${k}<b>${Math.floor(v)}</b></span>${bar(v, low)}</div>`).join('');
+  const rows = [['❤', 'SALUD', 'salud', 25], ['⚡', 'ENERGÍA', 'energia', 25], ['💪', 'FUERZA', 'fuerza', -1], ['🧠', 'CONOCIM.', 'conoc', -1]];
+  if (L.rooms.some((r) => r.outside)) rows.push(['O₂', 'OXÍGENO', 'o2', 35]);
+  const pls = s.ps ?? [p];
+  const sh = rows.map(([ic, k, c, low]) => { const vs = pls.map((q) => q[c]); const lo = vs.some((v) => v < low);
+    return `<div class="st st-${c} ${lo ? 'bajo' : ''}"><span class="st-ic">${ic}</span><span class="st-k">${k}<b>${vs.map((v, i) => (s.ps ? `<i style="color:${PCOL[i]}">${Math.floor(v)}</i>` : Math.floor(v))).join(' ')}</b></span>${vs.map((v) => bar(v, low)).join('')}</div>`; }).join('');
   if ($('stats').dataset.h !== sh) { $('stats').innerHTML = sh; $('stats').dataset.h = sh; }
   const cap = G.capacity(s); $('cap').textContent = `${p.inv.length}/${cap}`;
   $('inv').innerHTML = Array.from({ length: cap }, (_, i) => (p.inv[i] ? slot(p.inv[i]) : '<div class="slot vacio"></div>')).join('');
@@ -560,15 +579,17 @@ function hud() {
 // Mochila siempre visible debajo del mapa: tarjetas que entran animadas, plan y rutas en vivo.
 let dockPrev = { inv: [] }; const dockNew = [];
 function dock() {
-  const p = s.p; const L = s.L; const cap = G.capacity(s);
+  const sv = s.p; const p = s.ps ? s.ps[0] : s.p; s.p = p; const L = s.L; const cap = G.capacity(s);
   const now = performance.now(); p.inv.forEach((x, i) => { if (dockPrev.inv[i] !== x) dockNew[i] = now; });
-  const card = (id, i) => { const d = ITEMS[id]; const nuevo = now - (dockNew[i] ?? -1e9) < 600; return `<div class="dk-it ${d.plan ? 'plan' : d.tool ? 'tool' : ''} ${nuevo ? 'nuevo' : ''}" style="--i:${i}">${icon(id)}<span><b>${G.itemName(s, id)}</b><small>${d.plan ? 'Pieza del plan' : d.tool ? 'Herramienta · ¡cuidado!' : 'Pieza · T para lanzar'}</small></span>${!(id in L.plan) ? `<button class="dk-x" data-soltar="${i}" title="Soltar">✕</button>` : ''}</div>`; };
-  const slots = Array.from({ length: cap }, (_, i) => (p.inv[i] ? card(p.inv[i], i) : `<div class="dk-it vacio" style="--i:${i}"></div>`)).join('');
-  const got = G.PLAN_IDS.filter((id) => G.has(s, id)).length;
-  const plan = G.PLAN_IDS.map((id) => `<li class="${G.has(s, id) ? 'ok' : ''}" title="${L.plan[id].hint}">${icon(id)}<span>${L.plan[id].name}</span></li>`).join('');
+  const card = (id, i, pi = 0) => { const d = ITEMS[id]; const nuevo = now - (dockNew[i] ?? -1e9) < 600; return `<div class="dk-it ${d.plan ? 'plan' : d.tool ? 'tool' : ''} ${nuevo ? 'nuevo' : ''}" style="--i:${i}">${icon(id)}<span><b>${G.itemName(s, id)}</b><small>${d.plan ? 'Pieza del plan' : d.tool ? 'Herramienta · ¡cuidado!' : 'Pieza · T para lanzar'}</small></span>${!(id in L.plan) ? `<button class="dk-x" data-soltar="${i}" data-p="${pi}" title="Soltar">✕</button>` : ''}</div>`; };
+  const slotsOf = (q, pi) => { s.p = q; const c = G.capacity(s); return Array.from({ length: c }, (_, i) => (q.inv[i] ? card(q.inv[i], i, pi) : `<div class="dk-it vacio" style="--i:${i}"></div>`)).join(''); };
+  const slots = s.ps ? s.ps.map((q, pi) => `<div class="dk-jug" style="--pc:${PCOL[pi]}"><b>J${pi + 1}${q.down ? ' · CAÍDO' : ''}</b><div class="dk-items">${slotsOf(q, pi)}</div></div>`).join('') : slotsOf(p, 0);
+  s.p = p;
+  const got = G.PLAN_IDS.filter((id) => G.hasTeam(s, id)).length;
+  const plan = G.PLAN_IDS.map((id) => `<li class="${G.hasTeam(s, id) ? 'ok' : ''}" title="${L.plan[id].hint}">${icon(id)}<span>${L.plan[id].name}</span></li>`).join('');
   const rts = G.routes(s).map((r) => `<li class="${r.ok ? 'ok' : ''}" title="${r.desc}">${r.ok ? '▶' : '·'} ${r.name}</li>`).join('');
   const cb = p.inv.filter(G.isContraband).length;
-  const html = `<div class="dk-col dk-bolsa"><h3>🎒 MOCHILA <small>${p.inv.length}/${cap}</small>${cb >= 2 ? '<em class="dk-ojo">⚠ ' + cb + ' herramientas: riesgo en el pase de lista</em>' : ''}</h3><div class="dk-items">${slots}</div>
+  const html = `<div class="dk-col dk-bolsa"><h3>🎒 MOCHILA <small>${p.inv.length}/${cap}</small>${cb >= 2 ? '<em class="dk-ojo">⚠ ' + cb + ' herramientas: riesgo en el pase de lista</em>' : ''}</h3>${s.ps ? slots : `<div class="dk-items">${slots}</div>`}
     <p class="dk-esc">Escondite: ${s.stash.length}/${G.STASH_MAX}${s.stash.length ? ' · ' + s.stash.slice(0, 6).map((x) => icon(x)).join('') : ''}</p></div>
     <div class="dk-col dk-plan"><h3>PLAN <small>${got}/${G.PLAN_IDS.length}</small></h3><div class="dk-prog"><i style="width:${got / G.PLAN_IDS.length * 100}%"></i></div><ul>${plan}</ul></div>
     <div class="dk-col dk-rutas"><h3>RUTAS</h3><ul>${rts}</ul></div>`;
@@ -577,9 +598,9 @@ function dock() {
     el.innerHTML = html; el.dataset.h = html;
     if (got > (dockPrev.got ?? got)) { el.classList.remove('festeja'); void el.offsetWidth; el.classList.add('festeja'); }
   }
-  dockPrev = { inv: [...p.inv], got };
+  dockPrev = { inv: [...p.inv], got }; s.p = sv;
 }
-$('dock').addEventListener('click', (e) => { const b = e.target.closest('[data-soltar]'); if (b && s && !menu) { G.dropItem(s, +b.dataset.soltar); beep(300, 0.06); } });
+$('dock').addEventListener('click', (e) => { const b = e.target.closest('[data-soltar]'); if (b && s && !menu) { const sv = s.p; if (s.ps) s.p = s.ps[+b.dataset.p]; G.dropItem(s, +b.dataset.soltar); s.p = sv; beep(300, 0.06); } });
 
 // Íconos de piezas en pixel art (SVG chico).
 const ICON = {
@@ -612,12 +633,14 @@ function titleScreen() {
     <p>Cumple la rutina, esquiva a la IA y prepara en secreto tu regreso a la Tierra.</p>
     <p class="puntos">⭐ ${mt.pts} PUNTOS · racha ${mt.streak} (mejor ${mt.bestStreak}) · medallas ${Object.keys(mt.medals).length}/${Object.keys(Meta.MEDALS).length}</p>
     <div class="dificultad"><span class="lbl">MODO</span>${[['campana', 'CAMPAÑA · 10 días'], ['noche', 'UNA NOCHE · 7 min']].map(([k, n]) => `<button data-modo="${k}" class="${k === mode ? 'on' : ''}">${n}</button>`).join('')}</div>
+    <div class="dificultad"><span class="lbl">JUGADORES</span>${[['1', '1 JUGADOR'], ['2', '2 · COOPERATIVO (mismo teclado)']].map(([k, n]) => `<button data-jug="${k}" class="${k === getOpt('jug', '1') ? 'on' : ''}">${n}</button>`).join('')}${getOpt('jug', '1') === '2' ? '<small>J1: WASD · E usar · F esconder · Shift izq. agachar · I mochila · C fabricar · T lanzar · Q inhibir — J2: flechas · Enter usar · Ctrl der. esconder · Shift der. agachar · . mochila · - fabricar · , lanzar · Ñ inhibir · ´ soltar</small>' : ''}</div>
     <div class="dificultad"><span class="lbl">NIVEL</span>${Object.entries(DIFS).map(([k, d]) => Meta.difUnlocked(mt, k) ? `<button data-dif="${k}" class="${k === getDif() ? 'on' : ''}" title="${d.desc}">${d.name.toUpperCase()}</button>` : `<button data-comprar="dif:${k}" class="bloq" title="${d.desc}">🔒 ${d.name.toUpperCase()} · ${d.locked}</button>`).join('')}<small>${DIFS[getDif()].desc}</small></div>
     <div class="dificultad"><span class="lbl">PERSONAJE</span>${Object.entries(PERKS).map(([k, d]) => Meta.isUnlocked(mt, k) ? `<button data-perk="${k}" class="${k === perk ? 'on' : ''}" title="${d.desc}">${d.name.toUpperCase()}</button>` : `<button data-comprar="${k}" class="bloq" title="${d.desc}">🔒 ${d.name.toUpperCase()} · ${d.cost}</button>`).join('')}<small>${PERKS[perk].desc}</small></div>
     <div class="destinos">${cards}</div>
     <div class="fila" style="justify-content:center"><button id="t-reto" class="reto">📅 RETO DEL DÍA${dy.done ? ' · ' + Meta.fmtTime(dy.done) : ''}</button><button id="t-medallas">🏅 MEDALLAS</button><button id="t-archivo">📄 ARCHIVO</button><button id="t-ayuda">? CÓMO SE JUEGA</button></div>
   </div>`);
-  $('ventana').querySelectorAll('[data-loc]').forEach((b) => (b.onclick = () => { M.start(); clearSave(b.dataset.loc); s = G.newGame(b.dataset.loc, undefined, getDif(), { mode, perk, seen: Meta.seenNotes(b.dataset.loc) }); base = null; close(); intro(); }));
+  $('ventana').querySelectorAll('[data-loc]').forEach((b) => (b.onclick = () => { M.start(); clearSave(b.dataset.loc); s = G.newGame(b.dataset.loc, undefined, getDif(), { mode, perk, coop: getOpt('jug', '1') === '2', seen: Meta.seenNotes(b.dataset.loc) }); base = null; close(); intro(); }));
+  $('ventana').querySelectorAll('[data-jug]').forEach((b) => (b.onclick = () => { setOpt('jug', b.dataset.jug); titleScreen(); }));
   $('ventana').querySelectorAll('[data-modo]').forEach((b) => (b.onclick = () => { setOpt('modo', b.dataset.modo); titleScreen(); }));
   $('ventana').querySelectorAll('[data-perk]').forEach((b) => (b.onclick = () => { setOpt('perk', b.dataset.perk); titleScreen(); }));
   $('ventana').querySelectorAll('[data-comprar]').forEach((b) => (b.onclick = () => { const id = b.dataset.comprar; if (Meta.buy(id)) { beep(990, 0.2); if (id.startsWith('dif:')) setDif(id.slice(4)); else setOpt('perk', id); } else { beep(160, 0.15, 'sawtooth'); b.textContent = 'FALTAN PUNTOS'; setTimeout(titleScreen, 700); return; } titleScreen(); }));
@@ -811,8 +834,9 @@ function endScreen() {
 }
 
 // ---------- controles ----------
-function act(k) {
+function act(k, who = 0) {
   if (!s || s.over) return;
+  if (s.ps && !menu && !s.pending) { if (s.ps[who].down && !['m', 'p', 'escape'].includes(k)) return; s.p = s.ps[who]; }
   if (menu === 'fabricar' && k === 'c') return close();
   if (menu === 'mochila' && k === 'i') return close();
   if (k === 'm') { M.toggle(); return; }
@@ -834,12 +858,15 @@ addEventListener('keydown', (e) => {
   const k = e.key.toLowerCase();
   if (['arrowup', 'arrowdown', 'arrowleft', 'arrowright', ' '].includes(k)) e.preventDefault();
   if (e.repeat) return;
-  keys.add(k);
+  keys.add(k); codes.add(e.code);
+  if (s?.ps && P2KEYS[e.code]) { e.preventDefault(); return act(P2KEYS[e.code], 1); }
   if (k === 'escape' && menu && !['titulo', 'fin', 'protocolo', 'intro', 'codigo', 'cables', 'respira'].includes(menu)) { if (menu === 'escondite') s.pending = null; close(); return; }
-  if (['e', 'q', 'c', 'p', 'f', 't', 'g', 'b', 'i', 'm', 'escape'].includes(k)) act(k);
+  if (['e', 'q', 'c', 'p', 'f', 't', 'g', 'b', 'i', 'm', 'escape'].includes(k)) act(k, 0);
 });
-addEventListener('keyup', (e) => keys.delete(e.key.toLowerCase()));
-addEventListener('blur', () => keys.clear());
+addEventListener('keyup', (e) => { keys.delete(e.key.toLowerCase()); codes.delete(e.code); });
+addEventListener('blur', () => { keys.clear(); codes.clear(); });
+// Jugador 2 (cooperativo, mismo teclado): flechas + teclas a la derecha.
+const P2KEYS = { Enter: 'e', NumpadEnter: 'e', ControlRight: 'f', Comma: 't', Period: 'i', Slash: 'c', Semicolon: 'q', Quote: 'g' };
 $('btn-fabricar').onclick = () => act('c'); $('btn-mochila').onclick = () => act('i'); $('btn-menu').onclick = () => { if (!menu) act('p'); else if (menu === 'pausa') close(); }; $('btn-musica').onclick = () => { M.toggle(); $('btn-musica').textContent = M.on() ? '♪ MÚSICA' : '♪ SILENCIO'; }; $('btn-usar').onclick = () => act('q'); $('btn-ayuda').onclick = () => { if (!menu) help(null); };
 if (matchMedia('(pointer: coarse)').matches) $('tactil').hidden = false;
 const dirs = { u: [0, -1], d: [0, 1], l: [-1, 0], r: [1, 0] };
@@ -851,10 +878,15 @@ document.querySelectorAll('.cruz button').forEach((b) => {
 $('t-e').onclick = () => act('e'); $('t-f').onclick = () => act('f'); $('t-t').onclick = () => act('t'); $('t-i').onclick = () => act('i'); $('t-sh').onclick = () => { touch.crouch = !touch.crouch; $('t-sh').classList.toggle('sel', touch.crouch); }; $('t-q').onclick = () => act('q');
 
 function input() {
-  let dx = touch.dx, dy = touch.dy;
-  if (keys.has('a') || keys.has('arrowleft')) dx -= 1; if (keys.has('d') || keys.has('arrowright')) dx += 1;
-  if (keys.has('w') || keys.has('arrowup')) dy -= 1; if (keys.has('s') || keys.has('arrowdown')) dy += 1;
-  return { dx, dy, crouch: keys.has('shift') || !!touch.crouch };
+  let dx = touch.dx, dy = touch.dy; const co = !!s?.ps;
+  if (keys.has('a') || (!co && keys.has('arrowleft'))) dx -= 1; if (keys.has('d') || (!co && keys.has('arrowright'))) dx += 1;
+  if (keys.has('w') || (!co && keys.has('arrowup'))) dy -= 1; if (keys.has('s') || (!co && keys.has('arrowdown'))) dy += 1;
+  return { dx, dy, crouch: co ? codes.has('ShiftLeft') : keys.has('shift') || !!touch.crouch };
+}
+function input2() {
+  let dx = 0, dy = 0;
+  if (keys.has('arrowleft')) dx -= 1; if (keys.has('arrowright')) dx += 1; if (keys.has('arrowup')) dy -= 1; if (keys.has('arrowdown')) dy += 1;
+  return { dx, dy, crouch: codes.has('ShiftRight') };
 }
 
 function musicLevel() {
@@ -869,13 +901,14 @@ function frame(t) {
   const dt = Math.min(0.05, (t - last) / 1000); last = t;
   if (s) {
     const inp = input();
-    if (!menu) G.update(s, dt, inp);
+    const inp2 = s.ps ? input2() : null;
+    if (!menu) G.update(s, dt, inp, inp2);
     if (!menu && s.pending?.kind === 'respira') breathGame();
     while (s.sfx?.length) { const k = s.sfx.shift(); M.sting(k); }
     M.set(s.loc, musicLevel(), G.isNight(s));
     if (!menu && !s.p.sleep) M.heartbeat(Math.max(danger(), s.final ? 0.6 : 0));
     if (s.msg && s.msg !== lastMsg) { lastMsg = s.msg; beep(s.msg.kind === 'bad' ? 200 : s.msg.kind === 'ok' ? 880 : 520, 0.15, s.msg.kind === 'bad' ? 'sawtooth' : 'square'); }
-    if (!menu && (inp.dx || inp.dy) && (stepT -= dt) <= 0) { stepT = 0.28; beep(G.isOutside(s) ? 70 : 110, 0.03, 'triangle', 0.02); }
+    if (!menu && (inp.dx || inp.dy || inp2?.dx || inp2?.dy) && (stepT -= dt) <= 0) { stepT = 0.28; beep(G.isOutside(s) ? 70 : 110, 0.03, 'triangle', 0.02); }
     if (!menu && (s.final || s.hazards.some((h) => h.def.type === 'front' && h.phase === 'aviso')) && Math.floor(t / 500) !== Math.floor((t - dt * 1000) / 500)) beep(660, 0.12, 'sawtooth', 0.025);
     draw(t);
     hudT -= dt; if (hudT <= 0) { hud(); hudT = 0.12; }

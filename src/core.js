@@ -120,12 +120,14 @@ export function newGame(loc = 'estacion', seed = Date.now() & 0x7fffffff, difKey
     objects: L.objects.map((o) => ({ ...o, loot: [], used: false })),
     vil: null, shake: 0, sfx: [], floor: [],
     drones: [], hazards: [], crew: [], log: [], block: -1, blockStart: 0, checked: false, ate: false, worked: 0, illegal: 0,
-    action: null, pending: null, final: null, over: null, msg: null, events: [], noise: null, stats: { caught: 0, solved: 0, favors: 0, alertMax: 0, spotted: 0, hid: 0 },
+    pending: null, final: null, over: null, msg: null, events: [], noise: null, stats: { caught: 0, solved: 0, favors: 0, alertMax: 0, spotted: 0, hid: 0 },
   };
+  if (opts.coop) { s.ps = [s.p, { ...s.p, x: 4.5, y: 6.5, inv: ['cinta'], id: 2 }]; s.p.id = 1; }
+  linkAction(s);
   addLockers(s);
-  for (let i = 0; i < 3; i++) addDrone(s, i);
+  for (let i = 0; i < (s.ps ? 4 : 3); i++) addDrone(s, i);
   L.crew.forEach((c, i) => { const [bx, by] = L.beds[i]; s.crew.push({ ...c, trust: 0, betrayed: false, tellCd: 0, x: bx + 0.5, y: by + 0.5, dir: 0, path: null, goal: null, sayT: 5 + i * 7, say: null, want: null, avoid: ['ia', 'esclusa', 'capsula', 'exterior'] }); });
-  const pk = perk(s); s.p.fuerza += pk.fuerza ?? 0; s.p.conoc += pk.conoc ?? 0; for (const it of pk.start ?? []) s.p.inv.push(it);
+  const pk = perk(s); for (const q of players(s)) { q.fuerza += pk.fuerza ?? 0; q.conoc += pk.conoc ?? 0; } for (const it of pk.start ?? []) s.p.inv.push(it);
   if (s.mode === 'noche') setupNight(s);
   refill(s); if (s.mode !== 'noche') planEvents(s); newWants(s); V.startDay(s);
   if (s.mode === 'noche') say(s, `UNA NOCHE en ${L.name}. Ya tienes parte del plan. Escapa antes de las 06:00 o ${L.ai} te descubre.`, 'ia');
@@ -152,14 +154,14 @@ export const NIGHT_SPEED = 4 * 0.3125 / 5.5; // en UNA NOCHE el reloj va más le
 export function revive(o) {
   o.L = LOCS[o.loc]; const map = buildMap(o.L);
   (o.doorsOpen ?? []).forEach((v, i) => { if (map.doors[i]) map.doors[i].open = v; }); delete o.doorsOpen;
-  o.map = map; o.pending = null; o.action = null; o.floor ??= []; o.mode ??= 'campana'; o.perk ??= 'novato'; o.seen ??= []; o.notes ??= []; o.t ??= 0;
+  o.map = map; o.pending = null; delete o.action; if (o.ps) o.p = o.ps[0]; for (const q of o.ps ?? [o.p]) q.action = null; linkAction(o); o.escort = null; o.floor ??= []; o.mode ??= 'campana'; o.perk ??= 'novato'; o.seen ??= []; o.notes ??= []; o.t ??= 0;
   for (const c of o.crew) { c.trust ??= 0; c.tellCd ??= 0; }
   for (const h of o.hazards) h.def = HAZARDS[h.kind];
   (o.doorsLock ?? []).forEach((v, i) => { if (map.doors[i]) map.doors[i].lock = v; }); delete o.doorsLock;
   return o;
 }
 const NOSAVE = new Set(['busyBy', 'distractT', 'pending', 'who', 'escort']);
-export function serialize(s) { const { map, L, ...rest } = s; if (s.escort) rest.p = { ...s.p, x: s.escort.dest[0], y: s.escort.dest[1] }; return JSON.stringify({ ...rest, hazards: s.hazards.map(({ def, ...h }) => h), doorsOpen: map.doors.map((d) => d.open), doorsLock: map.doors.map((d) => d.lock) }, (k, v) => (NOSAVE.has(k) ? undefined : v)); }
+export function serialize(s) { const { map, L, ...rest } = s; if (s.escort) { const mv = (q) => (q === s.escort.p ? { ...q, x: s.escort.dest[0], y: s.escort.dest[1] } : q); rest.p = mv(s.p); if (s.ps) rest.ps = s.ps.map(mv); } return JSON.stringify({ ...rest, hazards: s.hazards.map(({ def, ...h }) => h), doorsOpen: map.doors.map((d) => d.open), doorsLock: map.doors.map((d) => d.lock) }, (k, v) => (NOSAVE.has(k) ? undefined : v)); }
 
 /** Casilleros para esconderse: uno por sala (menos dormitorio y salas prohibidas). */
 function addLockers(s) {
@@ -195,7 +197,16 @@ export const isNight = (s) => s.min < 360 || s.min >= 1320;
 export const playerRoom = (s) => roomIdAt(s, s.p.x, s.p.y);
 export const isOutside = (s, x = s.p.x, y = s.p.y) => !!roomAt(s, x, y)?.outside;
 export const PLAN_IDS = ['codigo', 'celda', 'traje', 'llave'];
-export const planDone = (s) => PLAN_IDS.every((id) => has(s, id));
+export const players = (s) => s.ps ?? [s.p];
+/** Con dos jugadores, cada amenaza mira al más cercano (que no esté caído). Deja s.p apuntando a ese jugador. */
+export function focus(s, b) {
+  if (!s.ps) return s.p; let best = null, bd = 1e9;
+  for (const p of s.ps) { if (p.down) continue; const d = Math.hypot(p.x - (b?.x ?? p.x), p.y - (b?.y ?? p.y)); if (d < bd) { bd = d; best = p; } }
+  return (s.p = best ?? s.ps[0]);
+}
+export const hasTeam = (s, id) => players(s).some((p) => p.inv.includes(id));
+export const planDone = (s) => PLAN_IDS.every((id) => hasTeam(s, id));
+function linkAction(s) { Object.defineProperty(s, 'action', { get() { return this.p.action ?? null; }, set(v) { this.p.action = v; }, enumerable: false, configurable: true }); }
 export const clock = (m) => `${String(Math.floor(m / 60) % 24).padStart(2, '0')}:${String(Math.floor(m % 60)).padStart(2, '0')}`;
 export const recipes = (s) => RECIPES.filter((r) => !r.locs || r.locs.includes(s.loc));
 /** Tormenta encima del jugador (oscuridad y menos visión de los drones). */
@@ -244,57 +255,74 @@ export function lockdown(s, who, by) {
 }
 
 // ---------- ciclo principal ----------
-export function update(s, dt, input = { dx: 0, dy: 0 }) {
+const tag = (s, p) => (s.ps ? `J${p.id}: ` : '');
+export function update(s, dt, input = { dx: 0, dy: 0 }, input2 = null) {
   if (s.over || s.pending) return;
   if (s.msg && (s.msg.t -= dt) <= 0) s.msg = null;
   if (s.escort) { updateEscort(s, dt); return; }
-  const p = s.p;
-  let moving = Math.abs(input.dx) + Math.abs(input.dy) > 0.1;
-  p.crouch = !!input.crouch;
-  if (p.hidden && moving) { p.hidden = null; say(s, 'Saliste del escondite.', 'info'); }
-  if (p.hidden) moving = false;
-  p.noisy = moving && !p.crouch && !p.inDuct && !p.sleep;
-  if (p.sleep && (moving || !isNight(s))) { p.sleep = false; if (!isNight(s)) say(s, 'Despiertas. Hora del pase de lista.', 'info'); }
+  const ps = players(s); const ins = [input, input2 ?? { dx: 0, dy: 0 }];
+  const mov = ps.map((p, k) => {
+    s.p = p; const inp = ins[k];
+    let moving = !p.down && Math.abs(inp.dx) + Math.abs(inp.dy) > 0.1;
+    p.crouch = !!inp.crouch;
+    if (p.hidden && moving) { p.hidden = null; say(s, `${tag(s, p)}Saliste del escondite.`, 'info'); }
+    if (p.hidden) moving = false;
+    p.noisy = moving && !p.crouch && !p.inDuct && !p.sleep;
+    if (p.sleep && (moving || !isNight(s))) { p.sleep = false; if (!isNight(s)) say(s, `${tag(s, p)}Despiertas. Hora del pase de lista.`, 'info'); }
+    return moving;
+  });
+  const sleeping = ps.some((p) => p.sleep) && ps.every((p) => p.sleep || p.down);
   const prevMin = s.min;
   s.t += dt;
-  s.min += dt * MIN_PER_SEC * (p.sleep ? SLEEP_MULT : 1) * (s.mode === 'noche' && !s.final ? NIGHT_SPEED : 1);
+  s.min += dt * MIN_PER_SEC * (sleeping ? SLEEP_MULT : 1) * (s.mode === 'noche' && !s.final ? NIGHT_SPEED : 1);
   if (s.mode === 'noche' && s.day >= 2 && s.min >= 360 && !s.final) { end(s, false, 'Amaneció', `Sonó el pase de lista de las 06:00 y ${s.L.ai} encontró tu cama vacía. La noche se acabó.`); return; }
   const dm = s.min - prevMin;
 
   if (s.min >= 1440) { newDay(s); if (s.over) return; }
   const bi = s.L.schedule.indexOf(block(s));
   if (bi !== s.block) { s.block = bi; s.blockStart = s.min; s.checked = false; s.ate = false; s.worked = 0; onBlockStart(s); }
-  if (!s.checked && s.min - s.blockStart >= dif(s).late) { s.checked = true; checkBlock(s); }
+  if (!s.checked && s.min - s.blockStart >= dif(s).late) { s.checked = true; for (const p of ps) { if (p.down) continue; s.p = p; checkBlock(s); } }
   if (s.events.length && s.min >= s.events[0]) { if (activeHaz(s) >= dif(s).maxHaz) s.events[0] += 45; else { s.events.shift(); spawnHazard(s); } }
   if (s.min >= 1260 && prevMin < 1260 && s.iaOn) say(s, `${s.L.ai}: ${s.L.aiLines[Math.min(s.day - 1, s.L.aiLines.length - 1)]}`, 'ia');
-
-  p.energia = p.sleep ? Math.min(100, p.energia + dm * 0.22) : Math.max(0, p.energia - dm * 0.07);
-  if (p.energia > 30) p.salud = Math.min(100, p.salud + dm * dif(s).regen);
   if (s.iaOn) s.alert = Math.max(0, s.alert - dm / 60);
   if (s.illegal > 0) s.illegal -= dt;
   if (s.grace > 0) s.grace -= dt;
-  if (p.hit > 0) p.hit -= dt;
-  // oxígeno: afuera sin traje se acaba muy rápido
-  if (isOutside(s) && !p.inDuct) { p.o2 = Math.max(0, p.o2 - dt * (has(s, 'traje') ? 0.6 : 14)); if (p.o2 <= 0) { p.salud -= 18 * dt; p.hit = 0.2; } }
-  else p.o2 = Math.min(100, p.o2 + dt * 25);
 
-  if (moving && !p.sleep) {
-    s.action = null;
-    const len = Math.hypot(input.dx, input.dy);
-    let sp = (p.energia <= 0 ? 2.2 : 4.4) * (p.crouch ? 0.52 : 1) * (perk(s).speed ?? 1) * dt;
-    if (slowHere(s)) sp *= 0.5;
-    p.dir = Math.atan2(input.dy, input.dx); p.walk += dt;
-    moveBody(s, p, (input.dx / len) * sp, (input.dy / len) * sp, 0.28, 'p');
-  }
-  if (s.action) { s.action.t += dt; if (s.action.t >= s.action.need) { const a = s.action; s.action = null; finishAction(s, a); } }
+  ps.forEach((p, k) => {
+    s.p = p; const inp = ins[k];
+    if (p.down) { p.hit = 0; return; }
+    p.energia = p.sleep ? Math.min(100, p.energia + dm * 0.22) : Math.max(0, p.energia - dm * 0.07);
+    if (p.energia > 30) p.salud = Math.min(100, p.salud + dm * dif(s).regen);
+    if (p.hit > 0) p.hit -= dt;
+    // oxígeno: afuera sin traje se acaba muy rápido
+    if (isOutside(s) && !p.inDuct) { p.o2 = Math.max(0, p.o2 - dt * (has(s, 'traje') ? 0.6 : 14)); if (p.o2 <= 0) { p.salud -= 18 * dt; p.hit = 0.2; } }
+    else p.o2 = Math.min(100, p.o2 + dt * 25);
+    if (mov[k] && !p.sleep) {
+      s.action = null;
+      const len = Math.hypot(inp.dx, inp.dy);
+      let sp = (p.energia <= 0 ? 2.2 : 4.4) * (p.crouch ? 0.52 : 1) * (perk(s).speed ?? 1) * dt;
+      if (slowHere(s)) sp *= 0.5;
+      p.dir = Math.atan2(inp.dy, inp.dx); p.walk += dt;
+      moveBody(s, p, (inp.dx / len) * sp, (inp.dy / len) * sp, 0.28, 'p');
+    }
+    if (s.action) { s.action.t += dt; if (s.action.t >= s.action.need) { const a = s.action; s.action = null; finishAction(s, a); } }
+  });
+  s.p = ps[0];
 
-  const h0 = p.salud, i0 = s.integ; updateHazards(s, dt, dm); if (p.salud < h0) p.salud = h0 - (h0 - p.salud) * dif(s).dmg; if (s.integ < i0) s.integ = i0 - (i0 - s.integ) * dif(s).dmg;
-  updateDrones(s, dt);
-  updateCrew(s, dt);
-  V.updateVillains(s, dt, dm);
-  if (s.final) updateFinal(s, dt);
+  const h0 = ps.map((p) => p.salud), i0 = s.integ; updateHazards(s, dt, dm);
+  ps.forEach((p, k) => { if (p.salud < h0[k]) p.salud = h0[k] - (h0[k] - p.salud) * dif(s).dmg; });
+  if (s.integ < i0) s.integ = i0 - (i0 - s.integ) * dif(s).dmg;
+  const pend = () => (s.pending ? s.p : null);
+  updateDrones(s, dt); let pp = pend();
+  s.p = ps[0]; updateCrew(s, dt);
+  V.updateVillains(s, dt, dm); pp ??= pend();
+  s.p = ps[0]; if (s.final) updateFinal(s, dt);
+  if (s.escort) s.p = s.escort.p; else if (pp) s.p = pp;
 
-  if (p.salud <= 0) end(s, false, 'Evacuación médica', `Tu salud llegó a cero. ${s.L.ai} se quedó con todo.`);
+  if (s.ps) {
+    for (const p of ps) if (p.salud <= 0 && !p.down) { p.down = true; p.salud = 0; p.sleep = false; p.hidden = null; Object.assign(p, { action: null }); flash(s, `¡J${p.id} cayó! El otro jugador puede levantarlo con E.`, 'bad'); }
+    if (ps.every((p) => p.down)) end(s, false, 'Evacuación médica', `Los dos cayeron. ${s.L.ai} se quedó con todo.`);
+  } else if (s.p.salud <= 0) end(s, false, 'Evacuación médica', `Tu salud llegó a cero. ${s.L.ai} se quedó con todo.`);
   if (s.integ <= 0) end(s, false, 'Base perdida', 'La base quedó inhabitable: demasiados problemas sin resolver.');
 }
 
@@ -332,9 +360,10 @@ function checkBlock(s) {
 
 // ---------- vigilancia ----------
 function updateDrones(s, dt) {
-  const p = s.p; const dk = dark(s);
+  let p = s.p; const dk = dark(s);
   const front = s.hazards.find((h) => (h.def.type === 'front' && h.def.safe) || h.def.type === 'shelter');
   for (const d of s.drones) {
+    p = focus(s, d);
     d.moving = false;
     if (!s.iaOn) { d.mode = 'apagado'; continue; }
     if (d.stun > 0) { d.stun -= dt; continue; }
@@ -524,10 +553,11 @@ export const onTiles = (s, h, x, y, r = 0.9) => !!h.tiles?.some((t) => Math.hypo
 function slowHere(s) { return !s.p.inDuct && s.hazards.some((h) => h.def.type === 'spread' && h.def.slow && onTiles(s, h, s.p.x, s.p.y, 0.7)); }
 
 function updateHazards(s, dt, dm) {
-  const p = s.p;
+  let p = s.p;
   const kill = (h) => s.hazards.splice(s.hazards.indexOf(h), 1);
   for (const h of [...s.hazards]) {
     const def = h.def;
+    p = h.def.type === 'spread' && s.ps ? (s.p = s.ps.find((q) => !q.down && onTiles(s, h, q.x, q.y)) ?? focus(s, null)) : focus(s, h.bits?.[0] ?? (h.x != null ? h : null));
     const near = (x, y, r) => !p.inDuct && Math.hypot(p.x - x, p.y - y) < r;
     if (def.type === 'spread') {
       h.t += dt; if (h.t > def.rate) { h.t = 0; spreadTiles(s, h); }
@@ -634,6 +664,7 @@ export function label(s, n) {
 export function interact(s) {
   if (s.over || s.pending) return;
   if (s.p.hidden) return flash(s, 'Estás escondido. Pulsa F para salir.', 'info');
+  if (s.ps) { const o = s.ps.find((q) => q !== s.p && q.down && Math.hypot(q.x - s.p.x, q.y - s.p.y) < 1.5); if (o) { o.down = false; o.salud = 35; o.hit = 0.5; return flash(s, `J${s.p.id} levantó a J${o.id}. ¡Sigan!`, 'ok'); } }
   const n = nearby(s)[0]; const p = s.p;
   if (!n) return;
   if (n.kind === 'puerta') return toggleDoor(s, n.door);
@@ -722,8 +753,8 @@ export const notesKnown = (s) => new Set([...s.seen, ...s.notes]).size;
 export function routes(s) {
   const loyal = s.crew.filter((c) => c.trust >= 2 && !c.betrayed).length;
   return [
-    { id: 'motin', name: 'Motín', desc: `Gánate a los 3 compañeros (2 favores cada uno; vas ${loyal}/3) y lleva ${itemName(s, 'codigo')} + ${itemName(s, 'celda')}. Ellos tiran de la palanca y frenan a los drones.`, ok: loyal === 3 && has(s, 'codigo') && has(s, 'celda') },
-    { id: 'sabotaje', name: 'Sabotaje', desc: `Apaga a ${s.L.ai} y despega a mano: solo ${itemName(s, 'codigo')} + ${itemName(s, 'llave')}.`, ok: !s.iaOn && has(s, 'codigo') && has(s, 'llave') },
+    { id: 'motin', name: 'Motín', desc: `Gánate a los 3 compañeros (2 favores cada uno; vas ${loyal}/3) y lleva ${itemName(s, 'codigo')} + ${itemName(s, 'celda')}. Ellos tiran de la palanca y frenan a los drones.`, ok: loyal === 3 && hasTeam(s, 'codigo') && hasTeam(s, 'celda') },
+    { id: 'sabotaje', name: 'Sabotaje', desc: `Apaga a ${s.L.ai} y despega a mano: solo ${itemName(s, 'codigo')} + ${itemName(s, 'llave')}.`, ok: !s.iaOn && hasTeam(s, 'codigo') && hasTeam(s, 'llave') },
     { id: 'plan', name: 'Plan de regreso', desc: 'Las 4 piezas del plan.', ok: planDone(s) },
   ];
 }
