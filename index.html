@@ -23,19 +23,15 @@
     <canvas id="lienzo" width="832" height="468"></canvas>
     <div id="aviso" hidden></div>
   </section>
+  <section class="hudbar">
+    <div class="hb hb-ia"><h3 id="t-alerta">IA · ALERTA</h3><div class="medidor alerta"><i id="m-alerta"></i></div><h3>INTEGRIDAD</h3><div class="medidor integ"><i id="m-integ"></i></div></div>
+    <div class="hb stats" id="stats"></div>
+    <div class="hb hb-acc"><small id="cap" hidden></small><div id="inv" class="inv" hidden></div><button id="btn-mochila">🎒 MOCHILA <kbd>I</kbd></button><button id="btn-fabricar">🔧 FABRICAR <kbd>C</kbd></button><button id="btn-usar">📡 INHIBIR <kbd>Q</kbd></button></div>
+  </section>
   <section class="dock" id="dock"></section>
   </div>
   <aside class="panel">
-    <div class="caja">
-      <h3 id="t-alerta">IA · ALERTA</h3>
-      <div class="medidor alerta"><i id="m-alerta"></i></div>
-      <h3>INTEGRIDAD DE LA BASE</h3>
-      <div class="medidor integ"><i id="m-integ"></i></div>
-    </div>
     <div class="caja amenazas"><h3>AMENAZAS DE HOY</h3><ul id="amenazas"></ul></div>
-    <div class="caja stats" id="stats"></div>
-    <div class="caja"><h3>ACCIONES <small id="cap" hidden></small></h3><div id="inv" class="inv" hidden></div>
-      <div class="botones"><button id="btn-mochila">[I] MOCHILA</button><button id="btn-fabricar">[C] FABRICAR</button><button id="btn-usar">[Q] INHIBIR</button></div></div>
     <ul id="plan" class="plan" hidden></ul>
     <div class="caja"><h3>TRIPULACIÓN</h3><ul id="crew" class="crew"></ul></div>
     <div class="caja"><h3>REGISTRO</h3><ul id="log" class="log"></ul></div>

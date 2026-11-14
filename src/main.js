@@ -492,9 +492,10 @@ function hud() {
   $('t-alerta').textContent = `${L.ai} · ALERTA`;
   $('m-alerta').style.width = `${s.iaOn ? s.alert : 0}%`; $('m-alerta').parentElement.classList.toggle('alta', s.alert > 70);
   $('m-integ').style.width = `${Math.max(0, s.integ)}%`;
-  const rows = [['SALUD', p.salud, 25], ['ENERGÍA', p.energia, 25], ['FUERZA', p.fuerza, -1], ['CONOCIM.', p.conoc, -1]];
-  if (L.rooms.some((r) => r.outside)) rows.push(['OXÍGENO', p.o2, 35]);
-  $('stats').innerHTML = rows.map(([k, v, low]) => `<span>${k}</span>${bar(v, low)}<span>${Math.floor(v)}</span>`).join('');
+  const rows = [['❤', 'SALUD', p.salud, 25, 'salud'], ['⚡', 'ENERGÍA', p.energia, 25, 'energia'], ['💪', 'FUERZA', p.fuerza, -1, 'fuerza'], ['🧠', 'CONOCIM.', p.conoc, -1, 'conoc']];
+  if (L.rooms.some((r) => r.outside)) rows.push(['O₂', 'OXÍGENO', p.o2, 35, 'o2']);
+  const sh = rows.map(([ic, k, v, low, c]) => `<div class="st st-${c} ${v < low ? 'bajo' : ''}"><span class="st-ic">${ic}</span><span class="st-k">${k}<b>${Math.floor(v)}</b></span>${bar(v, low)}</div>`).join('');
+  if ($('stats').dataset.h !== sh) { $('stats').innerHTML = sh; $('stats').dataset.h = sh; }
   const cap = G.capacity(s); $('cap').textContent = `${p.inv.length}/${cap}`;
   $('inv').innerHTML = Array.from({ length: cap }, (_, i) => (p.inv[i] ? slot(p.inv[i]) : '<div class="slot vacio"></div>')).join('');
   $('plan').innerHTML = G.PLAN_IDS.map((id) => `<li class="${G.has(s, id) ? 'ok' : ''}" title="${L.plan[id].hint}">${L.plan[id].name}</li>`).join('') + `<li class="${s.iaOn ? '' : 'ok'}" title="Opcional: núcleo de la IA con tarjeta y 50 de conocimiento.">(Opcional) Apagar a ${L.ai}</li>` + G.routes(s).filter((r) => r.id !== 'plan').map((r) => `<li class="ruta ${r.ok ? 'ok' : ''}" title="${r.desc}">Ruta ${r.name}${r.ok ? ' ✓' : ''}</li>`).join('');

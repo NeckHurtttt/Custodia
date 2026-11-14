@@ -150,3 +150,19 @@ kbd { border: 1px solid var(--line); padding: 0 .3rem; color: var(--amber); }
 @keyframes dk-late { 50% { opacity: .55; } }
 @keyframes dk-fiesta { 0% { box-shadow: 0 0 0 0 rgba(95,246,255,.8); } 100% { box-shadow: 0 0 0 18px rgba(95,246,255,0); } }
 @media (max-width: 860px) { .dock { grid-template-columns: 1fr; } .dk-col + .dk-col { border-left: 0; padding-left: 0; border-top: 1px solid var(--line); padding-top: .5rem; } }
+
+/* recursos en horizontal debajo del mapa */
+.hudbar { display: grid; grid-template-columns: 1fr 2.4fr auto; gap: .8rem; align-items: center; border: 1px solid var(--line); background: var(--panel); padding: .5rem .7rem; }
+.hb h3 { margin: 0 0 .15rem; font-size: .85rem; } .hb .medidor { margin-bottom: .3rem; height: 9px; }
+.hudbar .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(96px, 1fr)); gap: .5rem; }
+.st { display: grid; grid-template-columns: auto 1fr; grid-template-rows: auto auto; column-gap: .35rem; align-items: center; padding: .2rem .4rem; border: 1px solid var(--line); background: #0d1320; --c: #5fb6ff; }
+.st-ic { grid-row: span 2; font-size: 1.3rem; filter: drop-shadow(0 0 4px var(--c)); }
+.st-k { display: flex; justify-content: space-between; font-size: .8rem; color: var(--dim); } .st-k b { color: var(--c); font-weight: normal; font-size: 1.05rem; line-height: .9; }
+.st .barrita { height: 6px; background: #0a0e17; border: 1px solid var(--line); } .st .barrita i { display: block; height: 100%; background: var(--c); box-shadow: 0 0 6px var(--c); transition: width .3s; }
+.st-salud { --c: #ff5d6c; } .st-energia { --c: #ffd23d; } .st-fuerza { --c: #ff8a3d; } .st-conoc { --c: #5ff6ff; } .st-o2 { --c: #4dffc3; }
+.st.bajo { border-color: var(--red); animation: dk-late .6s infinite; } .st.bajo .barrita i { background: var(--red); }
+.hb-acc { display: flex; gap: .4rem; flex-wrap: wrap; } .hb-acc button { white-space: nowrap; } .hb-acc kbd { opacity: .6; font-size: .8rem; }
+@media (max-width: 1100px) { .hudbar { grid-template-columns: 1fr; } }
+.hudbar { grid-template-columns: 170px minmax(0, 1fr) 150px; }
+.hudbar .stats { grid-template-columns: none; grid-auto-flow: column; grid-auto-columns: minmax(0, 1fr); gap: .4rem; }
+.hb-acc { flex-direction: column; } .hb-acc button { padding: .15rem .4rem; font-size: .95rem; display: flex; justify-content: space-between; }
