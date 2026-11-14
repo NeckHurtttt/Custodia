@@ -87,11 +87,11 @@ function drawBase() {
     b.fillStyle = T.wall; b.fillRect(px, py, TS, TS - 4);
     b.fillStyle = T.wallTop; b.fillRect(px, py, TS, 3);
     b.fillStyle = 'rgba(0,0,0,.25)'; b.fillRect(px + 7, py + 3, 1, TS - 7);
-    if (at(x, y + 1) && hashRand(x * 13 + y) > 0.8) { b.fillStyle = hashRand(x + y * 7) > 0.5 ? '#4dff88' : '#ffc23d'; b.fillRect(px + 3, py + 6, 2, 2); }
+    if (at(x, y + 1) && hashRand(x * 13 + y) > 0.8) { b.fillStyle = hashRand(x + y * 7) > 0.5 ? '#5fb6ff' : '#ffc23d'; b.fillRect(px + 3, py + 6, 2, 2); }
   }
   // nombres de las salas
   b.font = '10px VT323'; b.textBaseline = 'top';
-  for (const r of L.rooms) { b.fillStyle = 'rgba(0,0,0,.45)'; const w = b.measureText(r.name.toUpperCase()).width; b.fillRect(r.x * TS + 2, r.y * TS + 1, w + 4, 10); b.fillStyle = r.restricted ? '#ff6b6b' : r.outside ? '#ffffff' : '#9fe8b8'; b.fillText(r.name.toUpperCase(), r.x * TS + 4, r.y * TS + 1); }
+  for (const r of L.rooms) { b.fillStyle = 'rgba(0,0,0,.45)'; const w = b.measureText(r.name.toUpperCase()).width; b.fillRect(r.x * TS + 2, r.y * TS + 1, w + 4, 10); b.fillStyle = r.restricted ? '#ff6b6b' : r.outside ? '#ffffff' : '#dfe6f2'; b.fillText(r.name.toUpperCase(), r.x * TS + 4, r.y * TS + 1); }
   // objetos fijos
   for (const o of s.objects) drawObj(b, o, L.theme);
 }
@@ -105,7 +105,7 @@ function drawObj(b, o, theme) {
     case 'cajon': R(b, '#4a3d2a', x + 1, y + 5, 14, 11); R(b, '#7a6646', x + 1, y + 4, 14, 3); R(b, '#3a2f20', x + 2, y + 9, 12, 1); R(b, '#3a2f20', x + 2, y + 12, 12, 1); R(b, '#c9b48a', x + 7, y + 10, 2, 1); break;
     case 'mesa': R(b, '#5d636e', x, y + 4, 16, 9); R(b, '#8a919e', x, y + 3, 16, 3); R(b, '#e8b04a', x + 2, y + 6, 4, 3); R(b, '#6ac46a', x + 9, y + 6, 4, 3); break;
     case 'cinta': R(b, '#2a2a2e', x, y + 6, 16, 8); R(b, '#4a4a52', x + 1, y + 7, 14, 6); R(b, '#9aa', x + 1, y + 1, 2, 7); R(b, '#9aa', x + 13, y + 1, 2, 7); R(b, '#9aa', x + 1, y + 1, 14, 2); break;
-    case 'estudio': R(b, '#4a3a2c', x, y + 9, 16, 6); R(b, '#22272e', x + 3, y + 1, 10, 8); R(b, '#1c5a3a', x + 4, y + 2, 8, 6); R(b, '#4dff88', x + 5, y + 3, 5, 1); R(b, '#4dff88', x + 5, y + 5, 3, 1); break;
+    case 'estudio': R(b, '#4a3a2c', x, y + 9, 16, 6); R(b, '#22272e', x + 3, y + 1, 10, 8); R(b, '#1c3a5a', x + 4, y + 2, 8, 6); R(b, '#9fd4ff', x + 5, y + 3, 5, 1); R(b, '#9fd4ff', x + 5, y + 5, 3, 1); break;
     case 'registro': R(b, '#2a1416', x + 2, y, 12, 16); R(b, '#401c20', x + 3, y + 1, 10, 14); for (let i = 0; i < 4; i++) R(b, '#1a0c0e', x + 4, y + 3 + i * 3, 8, 1); break;
     case 'capcom': R(b, '#3c4450', x, y + 6, 16, 10); R(b, '#1a2a3a', x + 2, y + 7, 7, 5); R(b, '#5ff6ff', x + 3, y + 8, 5, 1); R(b, '#aab', x + 12, y, 1, 7); R(b, '#ff4b4b', x + 11, y, 3, 2); break;
     case 'trabajo':
@@ -131,7 +131,41 @@ function drawObj(b, o, theme) {
 }
 
 // ---------- personajes ----------
-function astro(ctx, x, y, dir, phase, stripe, moving, alpha = 1) {
+const SKINS = ['#f1c9a0', '#d9a273', '#a86d45', '#7a4b2e', '#ffdcc0'];
+const HAIRS = ['#2a1a10', '#5a3418', '#c98a3a', '#1a1a22', '#8a2a1a', '#e8d27a'];
+function looks(key) { let h = 0; for (const ch of key) h = (h * 31 + ch.charCodeAt(0)) >>> 0; return { skin: SKINS[h % SKINS.length], hair: HAIRS[(h >> 3) % HAIRS.length], pants: ['#2d3a5a', '#3a3a44', '#4a3628', '#25304a'][(h >> 6) % 4], long: (h >> 8) % 2 }; }
+function astro(ctx, x, y, dir, phase, shirt, moving, alpha = 1, key = 'yo', suit = false) {
+  if (suit) return suitSprite(ctx, x, y, dir, phase, shirt, moving, alpha);
+  ctx.globalAlpha = alpha;
+  const L = looks(key); const O = '#0b0d14';
+  const px = Math.round(x * TS), py = Math.round(y * TS);
+  const f = Math.abs(Math.cos(dir)) > Math.abs(Math.sin(dir)) ? (Math.cos(dir) > 0 ? 'r' : 'l') : (Math.sin(dir) > 0 ? 'd' : 'u');
+  const step = moving ? Math.round(Math.sin(phase * 14)) : 0;
+  R(ctx, 'rgba(0,0,0,.3)', px - 5, py + 5, 10, 3);
+  // contorno
+  R(ctx, O, px - 5, py - 13, 10, 9); R(ctx, O, px - 6, py - 5, 12, 9); R(ctx, O, px - 4, py + 2, 8, 6);
+  // piernas y zapatos
+  R(ctx, L.pants, px - 3, py + 2 + Math.max(0, step), 3, 3); R(ctx, L.pants, px, py + 2 + Math.max(0, -step), 3, 3);
+  R(ctx, '#1a1a1f', px - 3, py + 5 + Math.max(0, step), 3, 1); R(ctx, '#1a1a1f', px, py + 5 + Math.max(0, -step), 3, 1);
+  // cuerpo (camiseta del color del personaje) y brazos
+  R(ctx, shirt, px - 4, py - 4, 8, 7);
+  R(ctx, 'rgba(255,255,255,.25)', px - 4, py - 4, 8, 1);
+  if (f === 'l' || f === 'r') { R(ctx, shirt, px - 1, py - 3 + step, 2, 4); R(ctx, L.skin, px - 1, py + 1 + step, 2, 1); }
+  else { R(ctx, shirt, px - 5, py - 3 + step, 1, 4); R(ctx, shirt, px + 4, py - 3 - step, 1, 4); R(ctx, L.skin, px - 5, py + 1 + step, 1, 1); R(ctx, L.skin, px + 4, py + 1 - step, 1, 1); }
+  // cabeza
+  R(ctx, L.skin, px - 4, py - 12, 8, 8);
+  R(ctx, L.hair, px - 4, py - 12, 8, 3);
+  if (f === 'u') R(ctx, L.hair, px - 4, py - 12, 8, 7);
+  if (f === 'l') R(ctx, L.hair, px + 1, py - 12, 3, 6);
+  if (f === 'r') R(ctx, L.hair, px - 4, py - 12, 3, 6);
+  if (L.long && f !== 'u') { R(ctx, L.hair, px - 4, py - 10, 1, 5); R(ctx, L.hair, px + 3, py - 10, 1, 5); }
+  if (L.long && f === 'u') R(ctx, L.hair, px - 4, py - 5, 8, 2);
+  if (f === 'd') { R(ctx, O, px - 2, py - 8, 1, 2); R(ctx, O, px + 1, py - 8, 1, 2); R(ctx, '#e88a8a', px - 3, py - 6, 1, 1); R(ctx, '#e88a8a', px + 2, py - 6, 1, 1); }
+  if (f === 'l') R(ctx, O, px - 3, py - 8, 1, 2);
+  if (f === 'r') R(ctx, O, px + 2, py - 8, 1, 2);
+  ctx.globalAlpha = 1;
+}
+function suitSprite(ctx, x, y, dir, phase, stripe, moving, alpha = 1) {
   ctx.globalAlpha = alpha;
   const px = Math.round(x * TS), py = Math.round(y * TS);
   const f = Math.abs(Math.cos(dir)) > Math.abs(Math.sin(dir)) ? (Math.cos(dir) > 0 ? 'r' : 'l') : (Math.sin(dir) > 0 ? 'd' : 'u');
@@ -201,12 +235,12 @@ function draw(t) {
     if ((o.t === 'caja' || o.t === 'traje') && o.used) R(cx, 'rgba(0,0,0,.55)', px - 1, py - 1, 18, 18);
     if (o.t === 'escondite') R(cx, '#5ff6ff', px + 12, py + 9, 1, 2);
     if (o.t === 'palanca' && s.final) R(cx, s.final.lever ? '#4dff88' : (Math.floor(t / 200) % 2 ? '#ffc23d' : '#ff4b4b'), px + 6, py - 4, 4, 3);
-    if (o.t === 'estudio' && Math.floor(t / 600 + o.x) % 2) R(cx, '#4dff88', px + 10, py + 5, 1, 1);
+    if (o.t === 'estudio' && Math.floor(t / 600 + o.x) % 2) R(cx, '#9fd4ff', px + 10, py + 5, 1, 1);
   }
   // problemas
   for (const h of s.hazards) drawHazard(h, t, vis);
   // tripulación
-  for (const c of s.crew) if (vis(c.x, c.y)) astro(cx, c.x, c.y, c.dir, t / 1000, c.color, c.moving);
+  for (const c of s.crew) if (vis(c.x, c.y)) astro(cx, c.x, c.y, c.dir, t / 1000, c.color, c.moving, 1, c.name);
   // vigilancia (conos y drones)
   for (const d of s.drones) {
     if (!vis(d.x, d.y, 7)) continue;
@@ -226,7 +260,7 @@ function draw(t) {
   }
   // jugador
   const blink = p.hit > 0 && Math.floor(t / 80) % 2;
-  astro(cx, p.x, p.y, p.dir, p.walk, '#5ff6ff', keys.size > 0 || touch.dx || touch.dy, p.inDuct ? 0.5 : blink ? 0.35 : 1);
+  astro(cx, p.x, p.y, p.dir, p.walk, '#3d7bff', keys.size > 0 || touch.dx || touch.dy, p.inDuct ? 0.5 : blink ? 0.35 : 1, 'Comandante', G.isOutside(s) && G.has(s, 'traje'));
   if (p.sleep) { cx.fillStyle = '#5ff6ff'; cx.font = '10px VT323'; cx.fillText('z', p.x * TS + 7, p.y * TS - 14 - (t / 300 % 4)); }
 
   // luz: noche, tormenta, final
@@ -249,8 +283,8 @@ function draw(t) {
   cx.font = '10px VT323';
   for (const c of s.crew) if (c.say && vis(c.x, c.y)) bubble(c.x * TS, c.y * TS - 18, `${c.name}: ${c.say}`, c.color);
   const n = G.nearby(s)[0];
-  if (s.action) { const k = s.action.t / s.action.need; R(cx, '#010502', p.x * TS - 12, p.y * TS - 20, 24, 4); R(cx, '#ffc23d', p.x * TS - 12, p.y * TS - 20, 24 * k, 4); }
-  else if (n && !p.sleep && !menu) bubble(p.x * TS, p.y * TS - 20, `[E] ${G.label(s, n)}`, '#4dff88');
+  if (s.action) { const k = s.action.t / s.action.need; R(cx, '#0a0e17', p.x * TS - 12, p.y * TS - 20, 24, 4); R(cx, '#ffc23d', p.x * TS - 12, p.y * TS - 20, 24 * k, 4); }
+  else if (n && !p.sleep && !menu) bubble(p.x * TS, p.y * TS - 20, `[E] ${G.label(s, n)}`, '#ffffff');
 
   // capa de pantalla (sin cámara)
   cx.setTransform(1, 0, 0, 1, 0, 0);
@@ -264,7 +298,7 @@ function draw(t) {
 
 function bubble(x, y, txt, color) {
   const w = Math.min(190, cx.measureText(txt).width + 8);
-  R(cx, 'rgba(2,8,6,.88)', x - w / 2, y - 6, w, 12); R(cx, color, x - w / 2, y + 6, w, 1);
+  R(cx, 'rgba(10,14,24,.9)', x - w / 2, y - 6, w, 12); R(cx, color, x - w / 2, y + 6, w, 1);
   cx.fillStyle = '#e8f0ff'; cx.fillText(txt.length > 46 ? txt.slice(0, 45) + '…' : txt, x, y);
 }
 
@@ -307,11 +341,11 @@ function arrowToGoal(t) {
 
 function minimap() {
   const L = s.L; const k = 2; const mw = L.W * k, mh = L.H * k; const ox = cv.width - mw - 8, oy = 8;
-  R(cx, 'rgba(0,0,0,.6)', ox - 3, oy - 3, mw + 6, mh + 6); cx.strokeStyle = '#1c6b34'; cx.strokeRect(ox - 3.5, oy - 3.5, mw + 7, mh + 7);
+  R(cx, 'rgba(0,0,0,.6)', ox - 3, oy - 3, mw + 6, mh + 6); cx.strokeStyle = '#33405e'; cx.strokeRect(ox - 3.5, oy - 3.5, mw + 7, mh + 7);
   const goal = G.block(s).room;
   for (let y = 0; y < L.H; y++) for (let x = 0; x < L.W; x++) {
     const g = s.map.grid[y * L.W + x]; if (!g) continue; const r = L.rooms[s.map.room[y * L.W + x]];
-    cx.fillStyle = g === 2 ? '#ffc23d' : r?.id === goal ? '#2f6b4a' : r?.restricted ? '#4a1c1c' : r?.outside ? '#555' : '#1f3a2a';
+    cx.fillStyle = g === 2 ? '#ffc23d' : r?.id === goal ? '#3a5f9a' : r?.restricted ? '#4a1c1c' : r?.outside ? '#555' : '#2a3448';
     cx.fillRect(ox + x * k, oy + y * k, k, k);
   }
   for (const h of s.hazards) if (h.def.type !== 'front') R(cx, '#ff8a3d', ox + h.x * k - 1, oy + h.y * k - 1, 3, 3);
