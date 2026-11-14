@@ -2,6 +2,8 @@
 import { ITEMS, PROTOCOLS } from './common.js';
 import { LOCS } from './locs.js';
 import * as G from './core.js';
+import { VILLAINS } from './villains.js';
+import * as M from './music.js';
 
 const TS = 16, ZOOM = 2;
 const cv = document.getElementById('lienzo'); const cx = cv.getContext('2d');
@@ -116,6 +118,7 @@ function drawObj(b, o, theme) {
       if (theme === 'estacion') { R(b, '#6a5a3a', x, y + 1, 16, 15); R(b, '#8a7650', x + 1, y + 2, 14, 13); R(b, '#4a3d28', x + 1, y + 8, 14, 1); R(b, '#4a3d28', x + 7, y + 2, 1, 13); }
       else { R(b, '#c8ccd2', x + 2, y, 12, 16); R(b, '#e8ecf2', x + 3, y + 1, 4, 14); R(b, theme === 'luna' ? '#4a8aff' : '#ff8a3d', x + 2, y + 6, 12, 3); }
       break;
+    case 'casillero': R(b, '#2a3340', x + 3, y, 10, 16); R(b, '#46556a', x + 4, y + 1, 8, 14); for (let i = 0; i < 3; i++) R(b, '#1c232d', x + 5, y + 3 + i * 2, 6, 1); R(b, '#c9d3dd', x + 10, y + 9, 1, 2); break;
     case 'traje': R(b, '#5a6066', x + 1, y, 14, 16); R(b, '#e8eef5', x + 5, y + 2, 6, 5); R(b, '#e8eef5', x + 4, y + 7, 8, 6); R(b, '#e8eef5', x + 4, y + 13, 3, 3); R(b, '#e8eef5', x + 9, y + 13, 3, 3); R(b, '#2a5a8a', x + 6, y + 3, 4, 2); break;
     case 'nucleo': R(b, '#1a0a0c', x - 2, y - 2, 20, 20); R(b, '#3a1418', x, y, 16, 16); break;
     case 'palanca': R(b, '#3a4250', x, y + 4, 16, 12); R(b, '#22303a', x + 2, y + 5, 12, 4); R(b, '#888', x + 7, y - 2, 2, 7); break;
@@ -209,7 +212,8 @@ function draw(t) {
   cam.y = wh <= VH ? (wh - VH) / 2 : Math.max(0, Math.min(wh - VH, p.y * TS - VH / 2));
   cx.setTransform(1, 0, 0, 1, 0, 0); cx.imageSmoothingEnabled = false;
   cx.fillStyle = '#000'; cx.fillRect(0, 0, cv.width, cv.height);
-  cx.setTransform(ZOOM, 0, 0, ZOOM, Math.round(-cam.x * ZOOM), Math.round(-cam.y * ZOOM));
+  const sh = s.shake > 0 ? s.shake * 10 : 0; const sx = sh ? (Math.random() - 0.5) * sh : 0, sy = sh ? (Math.random() - 0.5) * sh : 0;
+  cx.setTransform(ZOOM, 0, 0, ZOOM, Math.round(-cam.x * ZOOM + sx), Math.round(-cam.y * ZOOM + sy));
   cx.drawImage(base, 0, 0);
   cx.textAlign = 'center'; cx.textBaseline = 'middle';
   const vis = (x, y, m = 2) => x * TS > cam.x - m * TS && x * TS < cam.x + VW + m * TS && y * TS > cam.y - m * TS && y * TS < cam.y + VH + m * TS;
@@ -240,7 +244,16 @@ function draw(t) {
   // problemas
   for (const h of s.hazards) drawHazard(h, t, vis);
   // tripulación
+  if (s.vil) {
+    for (const f of s.vil.prints) if (vis(f.x, f.y)) { R(cx, `rgba(190,190,180,${Math.min(0.6, f.t / 60)})`, f.x * TS - 3, f.y * TS + 2, 2, 3); R(cx, `rgba(190,190,180,${Math.min(0.6, f.t / 60)})`, f.x * TS + 1, f.y * TS + 4, 2, 3); }
+    const m = s.vil.mission;
+    if (m) { const k = 0.5 + 0.5 * Math.sin(t / 150); cx.strokeStyle = `rgba(200,120,255,${0.4 + k * 0.6})`; cx.lineWidth = 1.5; cx.beginPath(); cx.arc(m.x * TS, m.y * TS, 6 + k * 4, 0, 7); cx.stroke(); R(cx, '#d08aff', m.x * TS - 2, m.y * TS - 2, 4, 4);
+      if (m.holding) { R(cx, '#0a0e17', m.x * TS - 12, m.y * TS - 16, 24, 4); R(cx, '#d08aff', m.x * TS - 12, m.y * TS - 16, 24 * m.prog / m.need, 4); } }
+  }
+  if (s.noise) { const k = (t / 400) % 1; cx.strokeStyle = `rgba(255,255,255,${0.5 * (1 - k)})`; cx.lineWidth = 1; cx.beginPath(); cx.arc(s.noise.x * TS, s.noise.y * TS, 4 + k * 30, 0, 7); cx.stroke(); }
+  if (s.thrown) { const k = 1 - s.thrown.t / 0.5; R(cx, '#ffc23d', (s.thrown.x0 + (s.thrown.x - s.thrown.x0) * k) * TS - 1, (s.thrown.y0 + (s.thrown.y - s.thrown.y0) * k) * TS - 1 - Math.sin(k * Math.PI) * 10, 3, 3); }
   for (const c of s.crew) if (vis(c.x, c.y)) astro(cx, c.x, c.y, c.dir, t / 1000, c.color, c.moving, 1, c.name);
+  if (s.vil) for (const w of s.vil.walkers) drawWalker(w, t, vis);
   // vigilancia (conos y drones)
   for (const d of s.drones) {
     if (!vis(d.x, d.y, 7)) continue;
@@ -256,11 +269,13 @@ function draw(t) {
       cx.closePath(); cx.fill();
     }
     droneSprite(cx, d, t, off);
+    if (d.alarmT > 0) { d.alarmT -= 0.016; cx.font = '14px VT323'; cx.fillStyle = '#ff3b3b'; cx.fillText('!', d.x * TS, d.y * TS - 14); }
     if (d.stun > 0 && s.iaOn) { cx.fillStyle = '#5ff6ff'; cx.font = '9px VT323'; cx.fillText(`${Math.ceil(d.stun)}`, d.x * TS, d.y * TS - 12); }
   }
   // jugador
   const blink = p.hit > 0 && Math.floor(t / 80) % 2;
-  astro(cx, p.x, p.y, p.dir, p.walk, '#3d7bff', keys.size > 0 || touch.dx || touch.dy, p.inDuct ? 0.5 : blink ? 0.35 : 1, 'Comandante', G.isOutside(s) && G.has(s, 'traje'));
+  if (p.hidden) { cx.font = '9px VT323'; cx.fillStyle = '#9fd4ff'; cx.fillText('(escondido)', p.hidden.x * TS, p.hidden.y * TS - 14); R(cx, '#fff', p.hidden.x * TS - 3, p.hidden.y * TS - 2, 1, 1); R(cx, '#fff', p.hidden.x * TS + 2, p.hidden.y * TS - 2, 1, 1); }
+  else astro(cx, p.x, p.y + (p.crouch ? 0.12 : 0), p.dir, p.walk * (p.crouch ? 0.5 : 1), '#3d7bff', keys.size > 0 || touch.dx || touch.dy, p.inDuct ? 0.5 : blink ? 0.35 : p.crouch ? 0.8 : 1, 'Comandante', G.isOutside(s) && G.has(s, 'traje'));
   if (p.sleep) { cx.fillStyle = '#5ff6ff'; cx.font = '10px VT323'; cx.fillText('z', p.x * TS + 7, p.y * TS - 14 - (t / 300 % 4)); }
 
   // luz: noche, tormenta, final
@@ -272,6 +287,9 @@ function draw(t) {
     gr.addColorStop(0, 'rgba(0,0,0,0)'); gr.addColorStop(1, col);
     cx.fillStyle = gr; cx.fillRect(cam.x - 2, cam.y - 2, VW + 4, VH + 4);
   }
+  // peligro cerca: borde rojo que late
+  const fear = danger();
+  if (fear > 0 && !p.sleep) { const k = fear * (0.55 + 0.45 * Math.abs(Math.sin(t / (fear > 0.7 ? 140 : 260)))); const px = p.x * TS, py = p.y * TS; const gr = cx.createRadialGradient(px, py, 60, px, py, 260); gr.addColorStop(0, 'rgba(0,0,0,0)'); gr.addColorStop(1, `rgba(120,0,0,${0.55 * k})`); cx.fillStyle = gr; cx.fillRect(cam.x - 2, cam.y - 2, VW + 4, VH + 4); }
   // frentes (radiación, tormenta)
   for (const h of s.hazards) if (h.def.type === 'front' && h.phase === 'barre') {
     const [r, g, b] = h.def.color; const x0 = (h.x - h.def.width) * TS, x1 = h.x * TS;
@@ -292,6 +310,10 @@ function draw(t) {
   minimap();
   cx.textAlign = 'center';
   for (const h of s.hazards) if (h.def.type === 'front' && h.phase === 'aviso') { cx.font = '26px VT323'; cx.fillStyle = Math.floor(t / 250) % 2 ? '#ff4b4b' : '#ffc23d'; cx.fillText(`⚠ ${h.def.name}: ${Math.ceil(h.t)} s`, cv.width / 2, 30); }
+  for (const h of s.hazards) if (h.def.type === 'shelter') { cx.font = '26px VT323'; cx.fillStyle = Math.floor(t / 250) % 2 ? '#ff4b4b' : '#ffc23d'; cx.fillText(`⚠ ${h.def.name}: ${Math.ceil(h.t)} s → ${G.roomName(s, h.def.safe[0])}`, cv.width / 2, 30); }
+  const ms = s.vil?.mission; if (ms) { cx.font = '20px VT323'; cx.fillStyle = ms.left < 20 && Math.floor(t / 250) % 2 ? '#ff4b4b' : '#d08aff'; cx.fillText(`📻 ${ms.verb} · ${G.roomName(s, ms.room)} · ${Math.ceil(ms.left)} s`, cv.width / 2, 56); arrowTo(ms.x, ms.y, '#d08aff', G.roomName(s, ms.room), t); }
+  if (p.hidden) { cx.font = '18px VT323'; cx.fillStyle = '#9fd4ff'; cx.fillText('ESCONDIDO · muévete o pulsa F para salir', cv.width / 2, cv.height - 40); }
+  else if (p.crouch) { cx.font = '16px VT323'; cx.fillStyle = '#9fd4ff'; cx.fillText('agachado: silencioso y difícil de ver', cv.width / 2, cv.height - 40); }
   if (s.final) { cx.font = '32px VT323'; cx.fillStyle = '#ff4b4b'; cx.fillText(`¡DESPEGUE! ${Math.ceil(s.final.t)} s`, cv.width / 2, 30); }
   if (G.isOutside(s) && !p.inDuct) { cx.font = '20px VT323'; cx.fillStyle = p.o2 < 30 ? '#ff4b4b' : '#5ff6ff'; cx.fillText(`O₂ ${Math.ceil(p.o2)}%${G.has(s, 'traje') ? '' : ' · ¡SIN TRAJE!'}`, cv.width / 2, cv.height - 18); }
 }
@@ -325,8 +347,63 @@ function drawHazard(h, t, vis) {
     R(cx, '#000', h.x * TS - 3, h.y * TS - 3, 6, 6); R(cx, '#5ff6ff', h.x * TS - 1, h.y * TS - 1, 2, 2);
     cx.fillStyle = '#5ff6ff'; cx.font = '10px VT323'; cx.fillText(`Tres ${Math.ceil(h.tres)} s`, h.x * TS, h.y * TS - 12);
   } else if (def.type === 'robot') robotSprite(cx, h, t, h.kind === 'rover');
+  else if (def.type === 'sweep') {
+    const r = s.L.rooms.find((x) => x.id === h.room); const px = h.x * TS;
+    for (let y = r.y; y < r.y + r.h; y++) { if (y >= h.gap && y < h.gap + 2) continue; R(cx, '#d8dce2', px - 3, y * TS, 6, TS); R(cx, '#ff4b4b', px - 3, y * TS + 7, 6, 2); }
+    R(cx, 'rgba(255,75,75,.15)', r.x * TS, h.gap * TS, r.w * TS, 2 * TS);
+  } else if (def.type === 'mold') {
+    for (const i of h.blocked) { const [x, y] = s.L.grates[i]; for (let k = 0; k < 7; k++) R(cx, k % 2 ? '#b07ad8' : '#7a4aa0', x * TS + 2 + hashRand(i * 9 + k) * 11, y * TS + 2 + hashRand(i * 5 + k) * 11, 3, 3); }
+  } else if (def.type === 'meteor') {
+    for (const m of h.marks) {
+      if (m.boom > 0) { cx.fillStyle = `rgba(255,200,80,${m.boom * 3})`; cx.beginPath(); cx.arc(m.x * TS, m.y * TS, 18, 0, 7); cx.fill(); continue; }
+      cx.strokeStyle = Math.floor(t / 120) % 2 ? '#ff4b4b' : '#ffc23d'; cx.lineWidth = 1; cx.beginPath(); cx.arc(m.x * TS, m.y * TS, 4 + m.t * 6, 0, 7); cx.stroke(); R(cx, '#ff4b4b', m.x * TS - 1, m.y * TS - 1, 2, 2);
+    }
+  } else if (def.type === 'camera') {
+    if (!vis(h.x, h.y, 8)) return;
+    const on = s.iaOn && h.stun <= 0;
+    if (on) {
+      cx.fillStyle = h.sees ? 'rgba(255,60,60,.25)' : 'rgba(255,90,200,.12)'; cx.beginPath(); cx.moveTo(h.x * TS, h.y * TS);
+      for (let a = -0.45; a <= 0.46; a += 0.09) { let r = 0.2; while (r < h.def.range && G.los(s, h.x, h.y, h.x + Math.cos(h.dir + a) * r, h.y + Math.sin(h.dir + a) * r)) r += 0.25; cx.lineTo((h.x + Math.cos(h.dir + a) * r) * TS, (h.y + Math.sin(h.dir + a) * r) * TS); }
+      cx.closePath(); cx.fill();
+    }
+    R(cx, '#3a3f48', h.x * TS - 4, h.y * TS - 7, 8, 6); R(cx, on ? (Math.floor(t / 400) % 2 ? '#ff3b3b' : '#7a1c1c') : '#222', h.x * TS - 1, h.y * TS - 3, 2, 2);
+    if (h.stun > 0) { cx.fillStyle = '#5ff6ff'; cx.font = '9px VT323'; cx.fillText(`${Math.ceil(h.stun)}`, h.x * TS, h.y * TS - 12); }
+  } else if (def.type === 'blackout') {
+    const r = s.L.rooms.find((x) => x.id === h.room);
+    R(cx, def.quarantine ? 'rgba(255,225,74,.12)' : 'rgba(0,0,0,.72)', r.x * TS, r.y * TS, r.w * TS, r.h * TS);
+    if (def.quarantine && Math.floor(t / 500) % 2) { cx.fillStyle = '#ffe14a'; cx.font = '10px VT323'; cx.fillText('☣ CUARENTENA', (r.x + r.w / 2) * TS, (r.y + r.h / 2) * TS); }
+  }
+}
+function drawWalker(w, t, vis) {
+  if (w.gone || w.away || !vis(w.x, w.y, 7)) return;
+  const d = VILLAINS[w.vid];
+  if (w.kind === 'walker' && w.mode !== 'charla') {
+    let k = G.isNight(s) ? 0.8 : 1; if (G.dark(s)) k *= 0.55;
+    cx.fillStyle = w.mode === 'persigue' ? 'rgba(255,60,60,.22)' : 'rgba(190,140,255,.12)';
+    cx.beginPath(); cx.moveTo(w.x * TS, w.y * TS);
+    for (let a = -0.9; a <= 0.91; a += 0.15) { let r = 0.2; while (r < 6 * k && G.los(s, w.x, w.y, w.x + Math.cos(w.dir + a) * r, w.y + Math.sin(w.dir + a) * r)) r += 0.25; cx.lineTo((w.x + Math.cos(w.dir + a) * r) * TS, (w.y + Math.sin(w.dir + a) * r) * TS); }
+    cx.closePath(); cx.fill();
+  }
+  astro(cx, w.x, w.y, w.dir, t / 1000, w.shirt, w.moving, 1, w.copy ?? w.name);
+  if (w.alarmT > 0) { cx.font = '14px VT323'; cx.fillStyle = '#ff3b3b'; cx.fillText('!', w.x * TS, w.y * TS - 26); }
+  if (d.mode === 'doble') return;
+  cx.font = '8px VT323'; cx.fillStyle = w.mode === 'persigue' ? '#ff4b4b' : '#d8c8ff'; cx.fillText(w.loot ? `${w.name} 💼` : w.name, w.x * TS, w.y * TS - 17);
+  if (w.mode === 'charla') { cx.fillStyle = '#fff'; cx.fillText('bla bla…', w.x * TS, w.y * TS - 25); }
 }
 
+function arrowTo(wx, wy, color, name, t) {
+  const gx = wx * TS - cam.x, gy = wy * TS - cam.y; if (gx > 0 && gx < VW && gy > 0 && gy < VH) return;
+  const a = Math.atan2(gy - VH / 2, gx - VW / 2); const ex = cv.width / 2 + Math.cos(a) * (cv.width / 2 - 60), ey = cv.height / 2 + Math.sin(a) * (cv.height / 2 - 60);
+  cx.save(); cx.translate(ex, ey); cx.rotate(a); cx.fillStyle = color; cx.globalAlpha = 0.6 + 0.4 * Math.sin(t / 200); cx.beginPath(); cx.moveTo(12, 0); cx.lineTo(-7, -8); cx.lineTo(-7, 8); cx.fill(); cx.restore();
+  cx.font = '13px VT323'; cx.fillStyle = color; cx.fillText(name, ex - Math.cos(a) * 28, ey - Math.sin(a) * 20);
+}
+/** 0..1: qué tan cerca está alguien que te persigue o te busca. */
+function danger() {
+  const p = s.p; let best = 0;
+  const hunters = [...(s.iaOn ? s.drones : []), ...(s.vil?.walkers.filter((w) => !w.gone && !w.away && w.kind === 'walker') ?? []), ...s.hazards.filter((h) => h.def.type === 'robot' && h.chasing)];
+  for (const h of hunters) { const d = Math.hypot(h.x - p.x, h.y - p.y); const hot = h.mode === 'persigue' || h.mode === 'busca' || h.chasing; if (d < 7) best = Math.max(best, (1 - d / 7) * (hot ? 1 : 0.35)); }
+  return best;
+}
 // Flecha al borde de la pantalla que apunta a donde te toca estar.
 function arrowToGoal(t) {
   if (s.final) return;
@@ -350,6 +427,8 @@ function minimap() {
   }
   for (const h of s.hazards) if (h.def.type !== 'front') R(cx, '#ff8a3d', ox + h.x * k - 1, oy + h.y * k - 1, 3, 3);
   for (const c of s.crew) R(cx, c.color, ox + c.x * k - 1, oy + c.y * k - 1, 2, 2);
+  if (s.vil) for (const w of s.vil.walkers) if (!w.gone && !w.away && VILLAINS[w.vid].mode !== 'doble') R(cx, w.mode === 'persigue' ? '#ff3b3b' : '#c08aff', ox + w.x * k - 1, oy + w.y * k - 1, 3, 3);
+  if (s.vil?.mission) R(cx, '#d08aff', ox + s.vil.mission.x * k - 2, oy + s.vil.mission.y * k - 2, 4, 4);
   if (s.iaOn) for (const d of s.drones) R(cx, d.mode === 'persigue' ? '#ff3b3b' : '#ffc23d', ox + d.x * k - 1, oy + d.y * k - 1, 3, 3);
   R(cx, '#5ff6ff', ox + s.p.x * k - 2, oy + s.p.y * k - 2, 4, 4);
   R(cx, 'rgba(255,255,255,.25)', ox + cam.x / TS * k, oy + cam.y / TS * k, VW / TS * k, 1);
@@ -375,6 +454,12 @@ function hud() {
   $('inv').innerHTML = Array.from({ length: cap }, (_, i) => (p.inv[i] ? slot(p.inv[i]) : '<div class="slot vacio"></div>')).join('');
   $('plan').innerHTML = G.PLAN_IDS.map((id) => `<li class="${G.has(s, id) ? 'ok' : ''}" title="${L.plan[id].hint}">${L.plan[id].name}</li>`).join('') + `<li class="${s.iaOn ? '' : 'ok'}" title="Opcional: núcleo de la IA con tarjeta y 50 de conocimiento.">(Opcional) Apagar a ${L.ai}</li>`;
   $('crew').innerHTML = s.crew.map((c) => `<li><b style="color:${c.color}">■</b> ${c.name}: ${c.want ? `pide <span title="${ITEMS[c.want].name}">${icon(c.want)} ${ITEMS[c.want].name}</span>` : 'contento'}</li>`).join('');
+  const v = s.vil;
+  if (v) {
+    const th = v.today.map((id, i) => `<li class="${i === 0 ? 'ia' : ''}">${i === 0 && !s.iaOn ? '<s>' + VILLAINS[id].name + '</s>' : VILLAINS[id].name}<small>${VILLAINS[id].desc}</small></li>`).join('')
+      + (v.mission ? `<li class="mision">📻 ${v.mission.verb} (${Math.ceil(v.mission.left)} s)<small>${v.mission.text}</small></li>` : '');
+    if ($('amenazas').dataset.h !== th) { $('amenazas').innerHTML = th; $('amenazas').dataset.h = th; }
+  }
   const html = s.log.slice(-16).reverse().map((l) => `<li class="${l.kind}">${l.kind === 'day' ? '' : G.clock(l.min) + ' '}${l.text}</li>`).join('');
   if ($('log').dataset.h !== html) { $('log').innerHTML = html; $('log').dataset.h = html; }
   const av = $('aviso');
@@ -411,8 +496,8 @@ function titleScreen() {
     <div class="destinos">${cards}</div>
     <div class="fila" style="justify-content:center"><button id="t-ayuda">? CÓMO SE JUEGA</button></div>
   </div>`);
-  $('ventana').querySelectorAll('[data-loc]').forEach((b) => (b.onclick = () => { clearSave(b.dataset.loc); s = G.newGame(b.dataset.loc); base = null; close(); intro(); }));
-  $('ventana').querySelectorAll('[data-cont]').forEach((b) => (b.onclick = () => { s = load(b.dataset.cont); base = null; close(); }));
+  $('ventana').querySelectorAll('[data-loc]').forEach((b) => (b.onclick = () => { M.start(); clearSave(b.dataset.loc); s = G.newGame(b.dataset.loc); base = null; close(); intro(); }));
+  $('ventana').querySelectorAll('[data-cont]').forEach((b) => (b.onclick = () => { M.start(); s = load(b.dataset.cont); base = null; close(); }));
   $('t-ayuda').onclick = () => help(titleScreen);
 }
 
@@ -428,7 +513,10 @@ function intro() {
 function help(back) {
   menu = 'ayuda';
   open(`<h2>CÓMO SE JUEGA</h2>
-    <p><kbd>WASD</kbd>/<kbd>flechas</kbd> moverse · <kbd>E</kbd> usar / hablar · <kbd>C</kbd> fabricar · <kbd>Q</kbd> inhibidor (drones y robots) · <kbd>P</kbd> pausa</p>
+    <p><kbd>WASD</kbd>/<kbd>flechas</kbd> moverse · <kbd>Shift</kbd> agacharse (silencioso) · <kbd>E</kbd> usar / hablar · <kbd>F</kbd> esconderse · <kbd>T</kbd> lanzar pieza (ruido) · <kbd>I</kbd> mochila · <kbd>C</kbd> fabricar · <kbd>Q</kbd> inhibidor · <kbd>M</kbd> música · <kbd>Esc</kbd> pausa</p>
+    <p><b>Sigilo:</b> si un dron o un guardia te <b>toca</b> con algo raro encima, te atrapan. Caminar hace ruido: agáchate. Escóndete en <b>casilleros</b> o bajo las camas; si te vieron entrar, vendrán a revisar y tendrás que <b>contener la respiración</b>. Lanza piezas para distraerlos.</p>
+    <p><b>Manipula:</b> cuando un compañero está contento (ya le hiciste el favor), pídele que distraiga a un dron o guardia 30 s. Soborna al Soplón, desenmascara al Doble, entretén a Volkov.</p>
+    <p><b>Villanos:</b> cada destino tiene 10. La IA siempre está; los demás se sortean cada día (mira «Amenazas de hoy»). Las <b>misiones por radio</b> tienen reloj y dan premios.</p>
     <p><b>Rutina:</b> 06:00 pase de lista · 07:00 desayuno · 08:00 trabajo · 12:00 almuerzo · 13:00 ejercicio · 15:00 libre · 18:00 pase de lista · 19:00 cena · 20:00 libre · 22:00 luces apagadas.</p>
     <p><b>Mejora:</b> la cinta del Gimnasio sube la <b>fuerza</b> (cargas más y mueves cosas pesadas). Las terminales del Laboratorio suben el <b>conocimiento</b> (desbloquean recetas).</p>
     <p><b>Cajones</b> con luz amarilla tienen piezas (se llenan cada mañana). Guarda herramientas en tu <b>escondite</b>: en el pase de lista te revisan si llevas 2 o más.</p>
@@ -460,6 +548,40 @@ function stashMenu() {
   $('ventana').querySelectorAll('[data-poner]').forEach((b) => (b.onclick = () => { G.stashPut(s, +b.dataset.poner); stashMenu(); }));
   $('ventana').querySelectorAll('[data-sacar]').forEach((b) => (b.onclick = () => { G.stashTake(s, +b.dataset.sacar); stashMenu(); }));
   $('cerrar').onclick = () => { s.pending = null; close(); };
+}
+
+function bagMenu() {
+  menu = 'mochila';
+  const it = (id) => { const d = ITEMS[id]; return `<div class="it ${d.plan ? 'plan' : d.tool ? 'tool' : ''}">${icon(id)}<span>${G.itemName(s, id)}<small>${d.info ?? (d.tool ? 'Herramienta (te la quitan si te pillan).' : 'Pieza para fabricar. Se puede lanzar (T) para hacer ruido.')}</small></span></div>`; };
+  const plan = G.PLAN_IDS.map((id) => `<li class="${G.has(s, id) ? 'ok' : ''}">${s.L.plan[id].name}${G.has(s, id) ? '' : ' — ' + s.L.plan[id].hint}</li>`).join('');
+  open(`<h2>MOCHILA (${s.p.inv.length}/${G.capacity(s)})</h2>
+    <div class="mochila">${s.p.inv.map(it).join('') || '<p style="color:var(--dim)">(vacía)</p>'}</div>
+    <h3>EN TU ESCONDITE (${s.stash.length}/${G.STASH_MAX})</h3><div class="mochila">${s.stash.map(it).join('') || '<p style="color:var(--dim)">(vacío)</p>'}</div>
+    <h3>PLAN DE REGRESO</h3><ul class="plan">${plan}</ul>
+    <p style="color:var(--dim)">Herramientas encima: ${s.p.inv.filter(G.isContraband).length} · con 2 o más te las quitan en el pase de lista.</p>
+    <div class="fila"><button id="cerrar">CERRAR [I]</button></div>`);
+  $('cerrar').onclick = close;
+}
+
+// Minijuego 0: contener la respiración. Mantén ESPACIO (o el botón) para empujar la aguja dentro de la zona.
+function breathGame() {
+  menu = 'respira'; const who = s.pending.who; const name = who.vid ? VILLAINS[who.vid].name : `Un ${s.L.watcher}`;
+  open(`<h2>NO RESPIRES</h2><p>${name} está revisando tu escondite… Mantén <kbd>ESPACIO</kbd> (o el botón) para controlar la respiración y deja la aguja dentro de la zona.</p>
+    <div class="respira-latido" id="lat">♥</div><div class="respira"><div class="zona" id="zona"></div><div class="aguja" id="aguja"></div></div><div class="tiempo"><i id="rt"></i></div>
+    <div class="fila"><button id="aguanta">AGUANTAR (mantener)</button></div>`);
+  let x = 50, v = 0, time = 0, out = 0; const total = 6; let zc = 50; const zw = 26; let ptr = false;
+  const b = $('aguanta'); b.onpointerdown = () => (ptr = true); b.onpointerup = b.onpointerleave = () => (ptr = false);
+  const tick = setInterval(() => {
+    const dt = 0.05; time += dt; const hold = ptr || keys.has(' ');
+    zc = 50 + Math.sin(time * 1.3) * 25 + Math.sin(time * 3.1) * 8;
+    v += (hold ? -70 : 55) * dt + (Math.random() - 0.5) * 40 * dt; v *= 0.9; x = Math.max(0, Math.min(100, x + v * dt * 6));
+    const inside = Math.abs(x - zc) < zw / 2; if (!inside) out += dt;
+    $('zona').style.left = `${zc - zw / 2}%`; $('zona').style.width = `${zw}%`; $('aguja').style.left = `${x}%`; $('aguja').style.background = inside ? '#fff' : '#ff4b4b';
+    $('rt').style.width = `${(1 - time / total) * 100}%`; $('lat').style.transform = `scale(${1 + (Math.sin(time * (8 + out * 6)) > 0.6 ? 0.3 : 0)})`;
+    if (Math.floor(time * 4) !== Math.floor((time - dt) * 4)) beep(55 + out * 30, 0.1, 'sine', 0.08);
+    if (out > 1.6) done(false); else if (time >= total) done(true);
+  }, 50);
+  function done(ok) { clearInterval(tick); beep(ok ? 660 : 90, 0.4, ok ? 'triangle' : 'sawtooth', 0.06); G.resolveBreath(s, ok); close(); }
 }
 
 // Minijuego 1: protocolo NASA, tocar los pasos en orden.
@@ -529,6 +651,8 @@ function endScreen() {
 function act(k) {
   if (!s || s.over) return;
   if (menu === 'fabricar' && k === 'c') return close();
+  if (menu === 'mochila' && k === 'i') return close();
+  if (k === 'm') { M.toggle(); return; }
   if (menu) return;
   if (k === 'e') {
     G.interact(s);
@@ -536,19 +660,22 @@ function act(k) {
     if (pd === 'escondite') stashMenu(); else if (pd === 'protocolo') protocolGame(s.pending.id); else if (pd === 'codigo') codeGame(); else if (pd === 'cables') cablesGame();
   } else if (k === 'q') G.useQ(s);
   else if (k === 'c') craftMenu();
-  else if (k === 'p') { open('<h2>PAUSA</h2><div class="fila"><button id="seguir">SEGUIR</button><button id="ay">AYUDA</button><button id="salir">MENÚ (se guarda)</button></div>'); menu = 'pausa'; $('seguir').onclick = close; $('ay').onclick = () => help(() => { close(); act('p'); }); $('salir').onclick = () => { save(); titleScreen(); }; }
+  else if (k === 'f') G.toggleHide(s);
+  else if (k === 't') G.throwItem(s);
+  else if (k === 'i') bagMenu();
+  else if (k === 'p' || k === 'escape') { open(`<h2>PAUSA</h2><div class="fila"><button id="seguir">SEGUIR [Esc]</button><button id="mus">${M.on() ? 'QUITAR MÚSICA' : 'PONER MÚSICA'}</button><button id="ay">AYUDA</button><button id="salir">SALIR AL MENÚ (se guarda)</button></div>`); menu = 'pausa'; $('mus').onclick = () => { M.toggle(); close(); act('p'); }; $('seguir').onclick = close; $('ay').onclick = () => help(() => { close(); act('p'); }); $('salir').onclick = () => { save(); titleScreen(); }; }
 }
 addEventListener('keydown', (e) => {
   const k = e.key.toLowerCase();
   if (['arrowup', 'arrowdown', 'arrowleft', 'arrowright', ' '].includes(k)) e.preventDefault();
   if (e.repeat) return;
   keys.add(k);
-  if (k === 'escape' && menu && !['titulo', 'fin', 'protocolo', 'intro', 'codigo', 'cables'].includes(menu)) { if (menu === 'escondite') s.pending = null; close(); return; }
-  if (['e', 'q', 'c', 'p'].includes(k)) act(k);
+  if (k === 'escape' && menu && !['titulo', 'fin', 'protocolo', 'intro', 'codigo', 'cables', 'respira'].includes(menu)) { if (menu === 'escondite') s.pending = null; close(); return; }
+  if (['e', 'q', 'c', 'p', 'f', 't', 'i', 'm', 'escape'].includes(k)) act(k);
 });
 addEventListener('keyup', (e) => keys.delete(e.key.toLowerCase()));
 addEventListener('blur', () => keys.clear());
-$('btn-fabricar').onclick = () => act('c'); $('btn-usar').onclick = () => act('q'); $('btn-ayuda').onclick = () => { if (!menu) help(null); };
+$('btn-fabricar').onclick = () => act('c'); $('btn-mochila').onclick = () => act('i'); $('btn-menu').onclick = () => { if (!menu) act('p'); else if (menu === 'pausa') close(); }; $('btn-musica').onclick = () => { M.toggle(); $('btn-musica').textContent = M.on() ? '♪ MÚSICA' : '♪ SILENCIO'; }; $('btn-usar').onclick = () => act('q'); $('btn-ayuda').onclick = () => { if (!menu) help(null); };
 if (matchMedia('(pointer: coarse)').matches) $('tactil').hidden = false;
 const dirs = { u: [0, -1], d: [0, 1], l: [-1, 0], r: [1, 0] };
 document.querySelectorAll('.cruz button').forEach((b) => {
@@ -556,15 +683,21 @@ document.querySelectorAll('.cruz button').forEach((b) => {
   const off = (e) => { e.preventDefault(); touch.dx = 0; touch.dy = 0; };
   b.addEventListener('pointerdown', on); b.addEventListener('pointerup', off); b.addEventListener('pointerleave', off); b.addEventListener('pointercancel', off);
 });
-$('t-e').onclick = () => act('e'); $('t-q').onclick = () => act('q'); $('t-c').onclick = () => act('c');
+$('t-e').onclick = () => act('e'); $('t-f').onclick = () => act('f'); $('t-t').onclick = () => act('t'); $('t-i').onclick = () => act('i'); $('t-sh').onclick = () => { touch.crouch = !touch.crouch; $('t-sh').classList.toggle('sel', touch.crouch); }; $('t-q').onclick = () => act('q');
 
 function input() {
   let dx = touch.dx, dy = touch.dy;
   if (keys.has('a') || keys.has('arrowleft')) dx -= 1; if (keys.has('d') || keys.has('arrowright')) dx += 1;
   if (keys.has('w') || keys.has('arrowup')) dy -= 1; if (keys.has('s') || keys.has('arrowdown')) dy += 1;
-  return { dx, dy };
+  return { dx, dy, crouch: keys.has('shift') || !!touch.crouch };
 }
 
+function musicLevel() {
+  if (s.over) return 0; if (s.final) return 3;
+  const d = danger(); if (d > 0.5 || s.p.hidden && d > 0) return 2;
+  if (s.alert > 50 || G.emergency(s) || s.vil?.mission || d > 0) return 1;
+  return 0;
+}
 // ---------- bucle ----------
 let lastMsg = null; let stepT = 0;
 function frame(t) {
@@ -572,6 +705,9 @@ function frame(t) {
   if (s) {
     const inp = input();
     if (!menu) G.update(s, dt, inp);
+    if (!menu && s.pending?.kind === 'respira') breathGame();
+    while (s.sfx?.length) { const k = s.sfx.shift(); M.sting(k); }
+    M.set(s.loc, musicLevel(), G.isNight(s));
     if (s.msg && s.msg !== lastMsg) { lastMsg = s.msg; beep(s.msg.kind === 'bad' ? 200 : s.msg.kind === 'ok' ? 880 : 520, 0.15, s.msg.kind === 'bad' ? 'sawtooth' : 'square'); }
     if (!menu && (inp.dx || inp.dy) && (stepT -= dt) <= 0) { stepT = 0.28; beep(G.isOutside(s) ? 70 : 110, 0.03, 'triangle', 0.02); }
     if (!menu && (s.final || s.hazards.some((h) => h.def.type === 'front' && h.phase === 'aviso')) && Math.floor(t / 500) !== Math.floor((t - dt * 1000) / 500)) beep(660, 0.12, 'sawtooth', 0.025);

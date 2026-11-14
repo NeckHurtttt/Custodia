@@ -84,3 +84,15 @@ kbd { border: 1px solid var(--line); padding: 0 .3rem; color: var(--amber); }
 .teclado button { height: 64px; font-size: 1.8rem; } .teclado button.lit { background: var(--fg); color: #000; box-shadow: 0 0 18px var(--fg); }
 .cables { display: flex; justify-content: space-between; margin: .8rem 2rem; } .cables > div { display: grid; gap: 10px; }
 .cables button { width: 90px; height: 30px; border: 2px solid #000; color: #000; font-weight: bold; } .cables button.sel { outline: 3px solid #fff; } .cables button:disabled { opacity: .45; }
+
+.amenazas ul { list-style: none; margin: 0; padding: 0; font-size: .95rem; }
+.amenazas li { padding: .08rem 0; color: #ff9a8a; } .amenazas li.ia { color: var(--amber); } .amenazas li.mision { color: #d08aff; }
+.amenazas li small { display: block; color: var(--dim); font-size: .8rem; line-height: 1.05; }
+.mochila { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: .4rem; margin: .4rem 0; }
+.mochila .it { border: 1px solid var(--line); background: var(--panel2); padding: .35rem .5rem; display: flex; gap: .4rem; align-items: flex-start; }
+.mochila .it small { display: block; color: var(--dim); font-size: .8rem; line-height: 1.05; }
+.mochila .it.tool { border-color: #7a6420; } .mochila .it.plan { border-color: var(--cyan); }
+.respira { position: relative; height: 34px; border: 1px solid var(--line); background: #0a0e17; margin: .6rem 0; }
+.respira .zona { position: absolute; top: 0; bottom: 0; background: rgba(95,182,255,.35); border-left: 1px solid #5fb6ff; border-right: 1px solid #5fb6ff; }
+.respira .aguja { position: absolute; top: -4px; bottom: -4px; width: 4px; background: #fff; }
+.respira-latido { font-size: 2rem; text-align: center; color: #ff4b4b; }

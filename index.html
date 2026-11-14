@@ -13,7 +13,9 @@
   <span id="dia">DÍA 1/10</span>
   <span id="reloj">05:40</span>
   <span id="bloque">—</span>
-  <button id="btn-ayuda" class="mini">? AYUDA</button>
+  <button id="btn-musica" class="mini" title="Música (M)">♪ MÚSICA</button>
+  <button id="btn-ayuda">? AYUDA</button>
+  <button id="btn-menu" title="Pausa y menú (Esc)">⏸ MENÚ [Esc]</button>
 </header>
 <main class="juego">
   <section class="pantalla">
@@ -27,9 +29,10 @@
       <h3>INTEGRIDAD DE LA BASE</h3>
       <div class="medidor integ"><i id="m-integ"></i></div>
     </div>
+    <div class="caja amenazas"><h3>AMENAZAS DE HOY</h3><ul id="amenazas"></ul></div>
     <div class="caja stats" id="stats"></div>
     <div class="caja"><h3>INVENTARIO <small id="cap"></small></h3><div id="inv" class="inv"></div>
-      <div class="botones"><button id="btn-fabricar">[C] FABRICAR</button><button id="btn-usar">[Q] INHIBIR</button></div></div>
+      <div class="botones"><button id="btn-mochila">[I] MOCHILA</button><button id="btn-fabricar">[C] FABRICAR</button><button id="btn-usar">[Q] INHIBIR</button></div></div>
     <div class="caja"><h3>PLAN DE REGRESO</h3><ul id="plan" class="plan"></ul></div>
     <div class="caja"><h3>TRIPULACIÓN</h3><ul id="crew" class="crew"></ul></div>
     <div class="caja"><h3>REGISTRO</h3><ul id="log" class="log"></ul></div>
@@ -37,7 +40,7 @@
 </main>
 <div id="tactil" class="tactil" hidden>
   <div class="cruz"><button data-d="u">▲</button><button data-d="l">◀</button><button data-d="r">▶</button><button data-d="d">▼</button></div>
-  <div class="acciones"><button id="t-e">E</button><button id="t-q">Q</button><button id="t-c">C</button></div>
+  <div class="acciones"><button id="t-e">E</button><button id="t-f">F</button><button id="t-t">T</button><button id="t-sh">⇩</button><button id="t-q">Q</button><button id="t-i">I</button></div>
 </div>
 <div id="modal" class="modal" hidden><div class="ventana" id="ventana"></div></div>
 <script type="module" src="src/main.js"></script>

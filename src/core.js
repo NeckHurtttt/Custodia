@@ -1,17 +1,18 @@
 // Lógica de LIFELINE: Rutina (sin pantalla). La interfaz llama a update(), interact(), useQ(), craft()…
 import { ITEMS, LOOT, RECIPES, HAZARDS } from './common.js';
 import { LOCS } from './locs.js';
+import * as V from './villains.js';
 
 export const DAYS = 10;
 export const MIN_PER_SEC = 4;          // 1 s real = 4 min de juego
 export const SLEEP_MULT = 10;
 const CHECK_AFTER = 15;                // minutos de gracia para llegar al lugar del horario
-const VIEW = 5.5, FOV = Math.PI / 4;   // vigilancia: alcance (casillas) y medio ángulo
+const VIEW = 6.5, FOV = Math.PI / 3.6;   // vigilancia: alcance (casillas) y medio ángulo
 const N4 = [[1, 0], [-1, 0], [0, 1], [0, -1]];
 
 // ---------- azar con semilla (para repetir partidas en las pruebas) ----------
 export function rand(s) { s.seed = (s.seed + 0x6D2B79F5) | 0; let t = s.seed; t = Math.imul(t ^ (t >>> 15), t | 1); t ^= t + Math.imul(t ^ (t >>> 7), t | 61); return ((t ^ (t >>> 14)) >>> 0) / 4294967296; }
-const pick = (s, arr) => arr[Math.floor(rand(s) * arr.length)];
+export const pick = (s, arr) => arr[Math.floor(rand(s) * arr.length)];
 function pickWeighted(s, table) { const tot = Object.values(table).reduce((a, b) => a + b, 0); let r = rand(s) * tot; for (const [k, w] of Object.entries(table)) { r -= w; if (r <= 0) return k; } return Object.keys(table)[0]; }
 
 // ---------- mapa ----------
@@ -90,7 +91,7 @@ export function path(s, sx, sy, tx, ty, who = 'd', avoid = null) {
 }
 
 /** Mueve un cuerpo por el camino hacia goal. Devuelve true si llegó. */
-function follow(s, b, goal, speed, dt, who = 'd') {
+export function follow(s, b, goal, speed, dt, who = 'd') {
   b.repath = (b.repath ?? 0) - dt;
   const key = `${Math.floor(goal[0])},${Math.floor(goal[1])}`;
   if (!b.path || b.repath <= 0 || b.goalKey !== key) { b.path = path(s, b.x, b.y, goal[0], goal[1], who, b.avoid) ?? []; b.goalKey = key; b.repath = b.chasing ? 0.4 : 3; }
@@ -111,15 +112,17 @@ export function newGame(loc = 'estacion', seed = Date.now() & 0x7fffffff) {
   const L = LOCS[loc];
   const s = {
     loc, L, seed, day: 1, min: 340, map: buildMap(L),
-    p: { x: 3.5, y: 3.5, dir: 0, inDuct: false, sleep: false, salud: 100, energia: 90, fuerza: 5, conoc: 5, o2: 100, inv: ['cinta', 'tornillos'], hit: 0, walk: 0 },
+    p: { x: 3.5, y: 3.5, dir: 0, inDuct: false, hidden: null, crouch: false, noisy: false, dusty: 0, sleep: false, salud: 100, energia: 90, fuerza: 5, conoc: 5, o2: 100, inv: ['cinta', 'tornillos'], hit: 0, walk: 0 },
     stash: [], alert: 0, integ: 100, iaOn: true, frags: [false, false, false], grates: L.grates.map(() => false),
     objects: L.objects.map((o) => ({ ...o, loot: [], used: false })),
+    vil: null, shake: 0, sfx: [],
     drones: [], hazards: [], crew: [], log: [], block: -1, blockStart: 0, checked: false, ate: false, worked: 0, illegal: 0,
     action: null, pending: null, final: null, over: null, msg: null, events: [], noise: null, stats: { caught: 0, solved: 0, favors: 0 },
   };
-  for (let i = 0; i < 2; i++) addDrone(s, i);
+  addLockers(s);
+  for (let i = 0; i < 3; i++) addDrone(s, i);
   L.crew.forEach((c, i) => { const [bx, by] = L.beds[i]; s.crew.push({ ...c, x: bx + 0.5, y: by + 0.5, dir: 0, path: null, goal: null, sayT: 5 + i * 7, say: null, want: null, avoid: ['ia', 'esclusa', 'capsula', 'exterior'] }); });
-  refill(s); planEvents(s); newWants(s);
+  refill(s); planEvents(s); newWants(s); V.startDay(s);
   say(s, `Día 1 en ${L.name}. ${L.ai} tomó el control. Tienes ${DAYS} días para volver a casa.`, 'ia');
   return s;
 }
@@ -129,17 +132,29 @@ export function revive(o) {
   (o.doorsOpen ?? []).forEach((v, i) => { if (map.doors[i]) map.doors[i].open = v; }); delete o.doorsOpen;
   o.map = map; o.pending = null; o.action = null;
   for (const h of o.hazards) h.def = HAZARDS[h.kind];
+  (o.doorsLock ?? []).forEach((v, i) => { if (map.doors[i]) map.doors[i].lock = v; }); delete o.doorsLock;
   return o;
 }
-export function serialize(s) { const { map, L, ...rest } = s; return JSON.stringify({ ...rest, hazards: s.hazards.map(({ def, ...h }) => h), doorsOpen: map.doors.map((d) => d.open) }); }
+const NOSAVE = new Set(['busyBy', 'distractT', 'pending', 'who']);
+export function serialize(s) { const { map, L, ...rest } = s; return JSON.stringify({ ...rest, hazards: s.hazards.map(({ def, ...h }) => h), doorsOpen: map.doors.map((d) => d.open), doorsLock: map.doors.map((d) => d.lock) }, (k, v) => (NOSAVE.has(k) ? undefined : v)); }
 
+/** Casilleros para esconderse: uno por sala (menos dormitorio y salas prohibidas). */
+function addLockers(s) {
+  for (const r of s.L.rooms) {
+    if (r.restricted || r.outside || r.id === 'dorm') continue;
+    for (let k = 0; k < 12; k++) {
+      const x = r.x + Math.floor(rand(s) * r.w), y = r.y + (rand(s) < 0.5 ? 0 : r.h - 1);
+      if (!s.objects.some((o) => Math.abs(o.x - x) <= 1 && Math.abs(o.y - y) <= 1)) { s.objects.push({ t: 'casillero', x, y, loot: [], used: false }); break; }
+    }
+  }
+}
 function addDrone(s, i) {
   const r = s.L.routes[i % s.L.routes.length];
   s.drones.push({ x: r[0][0] + 0.5, y: r[0][1] + 0.5, route: i, wp: 1, path: null, dir: 0, mode: 'patrulla', stun: 0, lost: 0, target: null, cd: 0, avoid: ['exterior'] });
 }
 
 export function say(s, text, kind = 'info') { s.log.push({ text, kind, day: s.day, min: Math.floor(s.min) }); if (s.log.length > 50) s.log.shift(); }
-const flash = (s, text, kind = 'info') => { s.msg = { text, kind, t: 3.2 }; say(s, text, kind); };
+export const flash = (s, text, kind = 'info') => { s.msg = { text, kind, t: 3.2 }; say(s, text, kind); };
 export const itemName = (s, id) => s.L.plan[id]?.name ?? ITEMS[id]?.name ?? id;
 
 function refill(s) { for (const o of s.objects) if (o.t === 'cajon') { o.loot = []; const n = rand(s) < 0.75 ? 1 + (rand(s) < 0.35 ? 1 : 0) : 0; for (let k = 0; k < n; k++) o.loot.push(pickWeighted(s, LOOT)); } }
@@ -150,8 +165,8 @@ function newWants(s) { for (const c of s.crew) { c.want = pickWeighted(s, LOOT);
 export const capacity = (s) => 5 + Math.floor(s.p.fuerza / 20);
 export const has = (s, id) => s.p.inv.includes(id);
 export const isContraband = (id) => !!ITEMS[id]?.tool;
-function give(s, id) { if (s.p.inv.length >= capacity(s)) { flash(s, `Llevas las manos llenas: no puedes tomar ${itemName(s, id)}. Deja cosas en tu escondite.`, 'warn'); return false; } s.p.inv.push(id); return true; }
-function take(s, id) { const i = s.p.inv.indexOf(id); if (i >= 0) s.p.inv.splice(i, 1); return i >= 0; }
+export function give(s, id) { if (s.p.inv.length >= capacity(s)) { flash(s, `Llevas las manos llenas: no puedes tomar ${itemName(s, id)}. Deja cosas en tu escondite.`, 'warn'); return false; } s.p.inv.push(id); return true; }
+export function take(s, id) { const i = s.p.inv.indexOf(id); if (i >= 0) s.p.inv.splice(i, 1); return i >= 0; }
 export const block = (s) => s.L.schedule.find((b) => s.min >= b.from && s.min < b.to) ?? s.L.schedule[0];
 export const isNight = (s) => s.min < 360 || s.min >= 1320;
 export const playerRoom = (s) => roomIdAt(s, s.p.x, s.p.y);
@@ -162,19 +177,24 @@ export const clock = (m) => `${String(Math.floor(m / 60) % 24).padStart(2, '0')}
 export const recipes = (s) => RECIPES.filter((r) => !r.locs || r.locs.includes(s.loc));
 /** Tormenta encima del jugador (oscuridad y menos visión de los drones). */
 export const storm = (s) => s.hazards.find((h) => h.def.type === 'front' && h.def.dark && h.phase === 'barre' && s.p.x < h.x);
+/** Oscuridad donde está el jugador: tormenta o apagón. */
+export const dark = (s) => !!storm(s) || s.hazards.some((h) => h.def.type === 'blackout' && !h.def.quarantine && h.room === playerRoom(s));
+/** Hay una emergencia real (no cuentan cámaras ni apagones): excusa faltar al horario. */
+export const emergency = (s) => s.hazards.some((h) => !['camera', 'blackout'].includes(h.def.type));
+const MAGNET = ['spread', 'chaser', 'pull', 'robot', 'mold'];
 
-function raise(s, n, why) {
+export function raise(s, n, why) {
   if (!s.iaOn || s.over || s.final) return;
   s.alert = Math.min(100, s.alert + n);
   if (why) say(s, `${s.L.ai}: ${why} (+${Math.round(n)} de alerta)`, 'ia');
   if (s.alert >= 100) lockdown(s);
 }
-function lockdown(s) {
+export function lockdown(s, who) {
   const lost = s.p.inv.filter(isContraband);
   s.p.inv = s.p.inv.filter((i) => !isContraband(i));
-  Object.assign(s.p, { x: 3.5, y: 3.5, inDuct: false });
+  Object.assign(s.p, { x: 3.5, y: 3.5, inDuct: false, hidden: null }); s.p.energia = Math.max(0, s.p.energia - 20);
   s.alert = 40; s.stats.caught++;
-  flash(s, `¡BLOQUEO! ${s.L.ai} te encerró en el dormitorio${lost.length ? ' y confiscó: ' + lost.map((i) => itemName(s, i)).join(', ') : ''}. Lo del escondite está a salvo.`, 'bad');
+  flash(s, `${who ? who + ' te atrapó. ' : ''}¡BLOQUEO! ${s.L.ai} te encerró en el dormitorio${lost.length ? ' y confiscó: ' + lost.map((i) => itemName(s, i)).join(', ') : ''}. Lo del escondite está a salvo.`, 'bad');
 }
 
 // ---------- ciclo principal ----------
@@ -182,7 +202,11 @@ export function update(s, dt, input = { dx: 0, dy: 0 }) {
   if (s.over || s.pending) return;
   if (s.msg && (s.msg.t -= dt) <= 0) s.msg = null;
   const p = s.p;
-  const moving = Math.abs(input.dx) + Math.abs(input.dy) > 0.1;
+  let moving = Math.abs(input.dx) + Math.abs(input.dy) > 0.1;
+  p.crouch = !!input.crouch;
+  if (p.hidden && moving) { p.hidden = null; say(s, 'Saliste del escondite.', 'info'); }
+  if (p.hidden) moving = false;
+  p.noisy = moving && !p.crouch && !p.inDuct && !p.sleep;
   if (p.sleep && (moving || !isNight(s))) { p.sleep = false; if (!isNight(s)) say(s, 'Despiertas. Hora del pase de lista.', 'info'); }
   const prevMin = s.min;
   s.min += dt * MIN_PER_SEC * (p.sleep ? SLEEP_MULT : 1);
@@ -197,7 +221,7 @@ export function update(s, dt, input = { dx: 0, dy: 0 }) {
 
   p.energia = p.sleep ? Math.min(100, p.energia + dm * 0.22) : Math.max(0, p.energia - dm * 0.07);
   if (p.energia > 30) p.salud = Math.min(100, p.salud + dm * 0.02);
-  if (s.iaOn) s.alert = Math.max(0, s.alert - dm / 40);
+  if (s.iaOn) s.alert = Math.max(0, s.alert - dm / 60);
   if (s.illegal > 0) s.illegal -= dt;
   if (p.hit > 0) p.hit -= dt;
   // oxígeno: afuera sin traje se acaba muy rápido
@@ -207,7 +231,7 @@ export function update(s, dt, input = { dx: 0, dy: 0 }) {
   if (moving && !p.sleep) {
     s.action = null;
     const len = Math.hypot(input.dx, input.dy);
-    let sp = (p.energia <= 0 ? 1.8 : 3.6) * dt;
+    let sp = (p.energia <= 0 ? 1.8 : 3.6) * (p.crouch ? 0.52 : 1) * dt;
     if (slowHere(s)) sp *= 0.5;
     p.dir = Math.atan2(input.dy, input.dx); p.walk += dt;
     moveBody(s, p, (input.dx / len) * sp, (input.dy / len) * sp, 0.28, 'p');
@@ -217,6 +241,7 @@ export function update(s, dt, input = { dx: 0, dy: 0 }) {
   updateHazards(s, dt, dm);
   updateDrones(s, dt);
   updateCrew(s, dt);
+  V.updateVillains(s, dt, dm);
   if (s.final) updateFinal(s, dt);
 
   if (p.salud <= 0) end(s, false, 'Evacuación médica', `Tu salud llegó a cero. ${s.L.ai} se quedó con todo.`);
@@ -232,9 +257,9 @@ export function moveBody(s, b, mx, my, r, who) {
 function newDay(s) {
   s.min -= 1440; s.day++;
   if (s.day > DAYS) { end(s, false, `${s.L.ai} ganó`, `Pasaron los ${DAYS} días. ${s.L.ai} tomó el control total y nadie volvió a casa.`); return; }
-  if (s.day === 4 && s.drones.length < 3) { addDrone(s, 2); say(s, `${s.L.ai} activó un tercer ${s.L.watcher} de vigilancia.`, 'ia'); }
+  if ((s.day === 4 || s.day === 7) && s.drones.length < 5) { addDrone(s, s.drones.length); say(s, `${s.L.ai} activó un tercer ${s.L.watcher} de vigilancia.`, 'ia'); }
   refill(s); planEvents(s); newWants(s);
-  say(s, `— Día ${s.day} de ${DAYS} —`, 'day');
+  say(s, `— Día ${s.day} de ${DAYS} —`, 'day'); V.startDay(s);
 }
 
 function onBlockStart(s) {
@@ -252,47 +277,91 @@ function checkBlock(s) {
     if (cb.length >= 2) { const it = pick(s, cb); take(s, it); raise(s, 12, `Revisé tus bolsillos en el pase de lista y me llevé: ${itemName(s, it)}.`); }
     else say(s, 'Pase de lista sin problemas. (Llevar 2 o más herramientas encima es arriesgado.)', 'ok');
   } else if (b.id === 'dormir') { if (!here) raise(s, 15, 'No estabas en tu cama al apagar las luces.'); }
-  else if (!here && !s.hazards.length) raise(s, 10, `No fuiste a: ${b.name}.`);
+  else if (!here && !emergency(s)) raise(s, 10, `No fuiste a: ${b.name}.`);
 }
 
 // ---------- vigilancia ----------
 function updateDrones(s, dt) {
-  const p = s.p; const dark = storm(s);
-  const front = s.hazards.find((h) => h.def.type === 'front' && h.def.safe);
+  const p = s.p; const dk = dark(s);
+  const front = s.hazards.find((h) => (h.def.type === 'front' && h.def.safe) || h.def.type === 'shelter');
   for (const d of s.drones) {
     d.moving = false;
     if (!s.iaOn) { d.mode = 'apagado'; continue; }
     if (d.stun > 0) { d.stun -= dt; continue; }
+    if (d.busy > 0) { d.busy -= dt; if (d.busyBy) d.dir = Math.atan2(d.busyBy.y - d.y, d.busyBy.x - d.x); continue; }
+    if (d.ignore > 0) d.ignore -= dt;
     d.cd = Math.max(0, d.cd - dt);
-    const sees = canSee(s, d, dark ? 0.55 : 1);
-    if (sees && suspicious(s)) { d.mode = 'persigue'; d.lost = 0; d.target = [p.x, p.y]; raise(s, 14 * dt); }
-    else if (d.mode === 'persigue') { d.lost += dt; if (d.lost > 3) { d.mode = 'patrulla'; d.path = null; } }
+    const sees = canSee(s, d, dk ? 0.55 : 1);
+    if (sees && suspicious(s) && !(d.ignore > 0)) { if (d.mode !== 'persigue') V.spotted(s, d); d.mode = 'persigue'; d.lost = 0; d.target = [p.x, p.y]; raise(s, 14 * dt); }
+    else if (d.mode === 'persigue') { d.lost += dt; if (d.lost > 3) { d.mode = 'investiga'; d.look = 4; d.path = null; } }
+    // oído: pasos cerca o un ruido
+    if (d.mode === 'patrulla' && p.noisy && !p.hidden && Math.hypot(p.x - d.x, p.y - d.y) < 2.8) { d.mode = 'investiga'; d.target = [p.x, p.y]; d.look = 3; }
+    if (s.noise && d.mode === 'patrulla' && Math.hypot(s.noise.x - d.x, s.noise.y - d.y) < 10) { d.mode = 'investiga'; d.target = [s.noise.x, s.noise.y]; d.look = 4; }
     d.chasing = d.mode === 'persigue' || !!s.final;
     let goal;
-    const haz = s.hazards.find((h) => !['bouncer', 'front'].includes(h.def.type) && !isOutside(s, h.x, h.y));
-    if (d.mode === 'persigue') goal = d.target;
+    const haz = s.hazards.find((h) => MAGNET.includes(h.def.type) && !isOutside(s, h.x, h.y));
+    if (d.mode === 'persigue' || d.mode === 'busca') goal = d.target;
     else if (s.final) goal = [p.x, p.y];
+    else if (d.mode === 'investiga') {
+      goal = d.target;
+      if (Math.hypot(goal[0] - d.x, goal[1] - d.y) < 0.8) { d.look -= dt; d.dir += dt * 2.2; if (d.look <= 0) { d.mode = 'patrulla'; d.path = null; } continue; }
+    }
     else if (front && d.route !== 0) { const r = s.L.rooms.find((x) => x.id === 'ia'); goal = [r.x + 2.5, r.y + 2.5]; }
     else if (haz && d.route !== 0) goal = [haz.x, haz.y];
-    else if (s.noise && d === nearest(s.drones.filter((x) => x.stun <= 0), s.noise.x, s.noise.y)) goal = [s.noise.x, s.noise.y];
     else { const r = s.L.routes[d.route % s.L.routes.length]; let w = r[d.wp % r.length]; if (Math.hypot(w[0] + 0.5 - d.x, w[1] + 0.5 - d.y) < 0.6) { d.wp = (d.wp + 1) % r.length; w = r[d.wp]; } goal = [w[0] + 0.5, w[1] + 0.5]; }
-    follow(s, d, goal, (d.chasing ? 3.1 : 1.9) * (s.final ? 1.25 : 1), dt, 'd');
+    follow(s, d, goal, (d.chasing ? 3.4 : d.mode === 'patrulla' ? 2.0 : 2.6) * (s.final ? 1.2 : 1), dt, 'd');
     if (d.mode === 'persigue' && sees) d.dir = Math.atan2(p.y - d.y, p.x - d.x);
-    if (d.chasing && d.cd <= 0 && !p.inDuct && Math.hypot(p.x - d.x, p.y - d.y) < 0.7) {
+    // buscar en el escondite donde te vio meterte
+    if (d.mode === 'busca' && Math.hypot(d.target[0] - d.x, d.target[1] - d.y) < 1.3) {
+      if (p.hidden && Math.hypot(p.hidden.x - d.x, p.hidden.y - d.y) < 1.8 && !s.pending) { s.pending = { kind: 'respira', who: d }; d.mode = 'patrulla'; }
+      else { d.mode = 'investiga'; d.look = 3; }
+      continue;
+    }
+    // en cuanto te toca, te atrapa
+    if (d.cd <= 0 && !p.inDuct && !p.hidden && Math.hypot(p.x - d.x, p.y - d.y) < 0.75 && (d.chasing || suspicious(s) || p.inv.some(isContraband))) {
       d.cd = 4; s.stats.caught++;
-      if (s.final) { s.final.t -= 8; p.hit = 0.8; flash(s, `¡Un ${s.L.watcher} te frenó! −8 s.`, 'bad'); d.stun = 3; continue; }
-      const cb = p.inv.filter(isContraband); const it = cb.length ? pick(s, cb) : null; if (it) take(s, it);
-      p.energia = Math.max(0, p.energia - 15); p.hit = 0.6;
-      raise(s, 18, `Un ${s.L.watcher} te atrapó${it ? ' y te quitó: ' + itemName(s, it) : ''}.`);
+      if (s.final) { s.final.t -= 15; p.hit = 0.8; flash(s, `¡Un ${s.L.watcher} te agarró! −15 s.`, 'bad'); d.stun = 3; continue; }
+      p.hit = 1; s.shake = 0.5; lockdown(s, `Un ${s.L.watcher}`);
       d.mode = 'patrulla'; d.path = null;
     }
   }
   if (s.noise && (s.noise.t -= dt) <= 0) s.noise = null;
 }
-const nearest = (arr, x, y) => arr.slice().sort((a, b) => Math.hypot(a.x - x, a.y - y) - Math.hypot(b.x - x, b.y - y))[0];
+/** Alguien te descubrió en un escondite y aguantaste (o no) la respiración. */
+export function resolveBreath(s, ok) {
+  const pd = s.pending; s.pending = null; if (!pd) return;
+  const w = pd.who;
+  if (ok) { w.mode = 'patrulla'; w.path = null; w.ignore = 8; w.lost = 0; flash(s, 'Contuviste la respiración… se alejó.', 'ok'); return; }
+  s.p.hidden = null; s.shake = 0.6;
+  if (w.vid) return V.caughtBy(s, w);
+  s.stats.caught++; lockdown(s, `Un ${s.L.watcher} abrió tu escondite y`);
+}
+/** Tecla F: meterse o salir de un escondite (casillero o debajo de una cama). */
+export function toggleHide(s) {
+  const p = s.p; if (s.over || s.pending || p.inDuct) return;
+  if (p.hidden) { p.hidden = null; return say(s, 'Saliste del escondite.', 'info'); }
+  const o = s.objects.filter((x) => ['escondite', 'cama', 'casillero'].includes(x.t)).map((x) => [x, Math.hypot(x.x + 0.5 - p.x, x.y + 0.5 - p.y)]).sort((a, b) => a[1] - b[1])[0];
+  if (!o || o[1] > 1.4) return flash(s, 'No hay dónde esconderse aquí (casilleros o debajo de las camas).', 'warn');
+  p.hidden = { x: o[0].x + 0.5, y: o[0].y + 0.5, t: o[0].t };
+  // quien te estaba persiguiendo y te vio meterte, va a revisar
+  for (const h of [...s.drones, ...(s.vil?.walkers ?? [])]) if ((h.mode === 'persigue') && Math.hypot(h.x - p.x, h.y - p.y) < 8 && h.lost < 1) { h.mode = 'busca'; h.target = [p.hidden.x, p.hidden.y]; h.goal = h.target; }
+  flash(s, o[0].t === 'cama' ? 'Te metiste debajo de la cama. No respires.' : o[0].t === 'escondite' ? 'Te metiste en tu casillero. No hagas ruido.' : 'Te metiste en el casillero. No hagas ruido.', 'info');
+}
+/** Tecla T: lanzar una pieza para hacer ruido y atraer a la vigilancia. */
+export function throwItem(s) {
+  const p = s.p; if (s.over || s.pending || p.hidden || p.inDuct) return;
+  const i = p.inv.findIndex((x) => !ITEMS[x].tool); if (i < 0) return flash(s, 'No tienes piezas sueltas para lanzar (las herramientas no se tiran).', 'warn');
+  let x = p.x, y = p.y; const dx = Math.cos(p.dir), dy = Math.sin(p.dir);
+  for (let k = 0; k < 24; k++) { const nx = x + dx * 0.25, ny = y + dy * 0.25; if (!walkable(s, Math.floor(nx), Math.floor(ny), 'gas')) break; x = nx; y = ny; }
+  const [it] = p.inv.splice(i, 1);
+  s.noise = { x, y, t: 6 }; s.thrown = { x0: p.x, y0: p.y, x, y, t: 0.5 };
+  say(s, `Lanzaste ${ITEMS[it].name}: ¡CLANG! La vigilancia irá a ver.`, 'info');
+}
+export const nearest = (arr, x, y) => arr.slice().sort((a, b) => Math.hypot(a.x - x, a.y - y) - Math.hypot(b.x - x, b.y - y))[0];
 
 export function canSee(s, d, k = 1) {
-  const p = s.p; if (p.inDuct || d.stun > 0 || !s.iaOn) return false;
+  const p = s.p; if (p.inDuct || p.hidden || d.stun > 0 || !s.iaOn) return false;
+  if (p.crouch) k *= 0.7; if (isNight(s)) k *= 0.85;
   const dx = p.x - d.x, dy = p.y - d.y, dist = Math.hypot(dx, dy);
   if (dist > VIEW * k) return false;
   if (dist > 1.2) { let a = Math.atan2(dy, dx) - d.dir; a = Math.atan2(Math.sin(a), Math.cos(a)); if (Math.abs(a) > FOV) return false; }
@@ -305,7 +374,7 @@ export function suspicious(s) {
   if (room?.restricted || room?.outside) return true;
   if (isNight(s) && room?.id !== 'dorm') return true;
   const b = block(s);
-  if (b.room && s.checked && room?.id !== b.room && !s.hazards.length) return true;
+  if (b.room && s.checked && room?.id !== b.room && !emergency(s)) return true;
   return false;
 }
 
@@ -315,7 +384,7 @@ function updateCrew(s, dt) {
   const b = block(s);
   s.crew.forEach((c, i) => {
     c.moving = false;
-    const danger = s.hazards.find((h) => h.def.type !== 'front' && Math.hypot(h.x - c.x, h.y - c.y) < 4);
+    const danger = s.hazards.find((h) => MAGNET.includes(h.def.type) && Math.hypot(h.x - c.x, h.y - c.y) < 4);
     if (!c.goal || c.goalBlock !== s.block || c.goalDay !== s.day) {
       c.goalBlock = s.block; c.goalDay = s.day;
       if (b.id === 'dormir') { const [bx, by] = s.L.beds[i]; c.goal = [bx + 0.5, by + 0.5]; }
@@ -326,7 +395,8 @@ function updateCrew(s, dt) {
         c.goal = [gx + 0.5, gy + 0.5];
       }
     }
-    follow(s, c, c.goal, 2.1, dt, 'd');
+    if (c.busyT > 0 && c.distractT) { c.busyT -= dt; c.goal = [c.distractT.x + 0.9, c.distractT.y]; c.goalBlock = s.block; c.goalDay = s.day; if (c.busyT <= 0) { c.distractT = null; c.goal = null; } }
+    follow(s, c, c.goal ?? [c.x, c.y], c.busyT > 0 ? 3 : 2.1, dt, 'd');
     c.sayT -= dt;
     if (danger && !c.alarmed) { c.alarmed = true; c.say = pick(s, ['¡Cuidado!', '¡Alerta! ¡Protocolo!', '¿Alguien tiene herramientas?', '¡Aléjate de eso!']); c.sayFor = 3; }
     if (!danger) c.alarmed = false;
@@ -337,7 +407,15 @@ function updateCrew(s, dt) {
 
 /** Hablar con un compañero: te pide una pieza y te devuelve un favor. */
 function talk(s, c) {
-  if (!c.want) return flash(s, `${c.name}: "Hoy no necesito nada. ¡Gracias por lo de antes!"`, 'info');
+  if (!c.want) {
+    if (c.dday === s.day) return flash(s, `${c.name}: "Ya te cubrí hoy. Mañana te ayudo otra vez."`, 'info');
+    const targets = [...s.drones.filter((d) => s.iaOn && d.stun <= 0), ...(s.vil?.walkers ?? []).filter((w) => !w.away && !w.gone && w.kind === 'walker')];
+    const t = nearest(targets, s.p.x, s.p.y);
+    if (!t || Math.hypot(t.x - s.p.x, t.y - s.p.y) > 22) return flash(s, `${c.name}: "No veo a nadie a quien distraer."`, 'info');
+    c.dday = s.day; c.distractT = t; c.busyT = 30; t.busy = 30; t.busyBy = c; t.mode = t.vid ? 'charla' : 'patrulla';
+    c.say = pick(s, ['¡Oye! ¡Mira esto!', '¡Creo que hay una fuga aquí!', 'Tengo una pregunta del reglamento…']); c.sayFor = 5;
+    return flash(s, `${c.name} va a distraer a ${t.vid ? t.name : 'un ' + s.L.watcher} durante 30 s. ¡Aprovecha!`, 'ok');
+  }
   if (!has(s, c.want)) return flash(s, `${c.name}: "¿Me consigues ${ITEMS[c.want].name}? Te lo devuelvo con un favor."`, 'info');
   take(s, c.want); c.want = null; s.stats.favors++;
   const r = c.reward;
@@ -358,13 +436,14 @@ export function spawnHazard(s, kind = pick(s, s.L.hazards), roomId) {
   const h = { kind, def, room: r.id, x: cx + 0.5, y: cy + 0.5 };
   if (def.type === 'spread') Object.assign(h, { tiles: [I(s, cx, cy)], t: 0 });
   else if (def.type === 'chaser') Object.assign(h, { life: def.life, path: null });
-  else if (def.type === 'bouncer') h.bits = Array.from({ length: 3 }, () => { const a = rand(s) * Math.PI * 2; return { x: cx + 0.5, y: cy + 0.5, vx: Math.cos(a) * 2.4, vy: Math.sin(a) * 2.4, rot: 0 }; });
+  else if (def.type === 'bouncer') h.bits = Array.from({ length: def.n ?? 3 }, () => { const a = rand(s) * Math.PI * 2; return { x: cx + 0.5, y: cy + 0.5, vx: Math.cos(a) * 2.4, vy: Math.sin(a) * 2.4, rot: 0 }; });
   else if (def.type === 'pull') { const side = rand(s) < 0.5; const lx = side ? r.x + r.w - 1 : r.x; h.x = lx + 0.5 + (side ? 0.45 : -0.45); h.y = r.y + Math.floor(rand(s) * r.h) + 0.5; h.tres = def.tres; }
   else if (def.type === 'front') Object.assign(h, { phase: 'aviso', t: def.warn, x: -2, y: s.L.H / 2 });
   else if (def.type === 'robot') Object.assign(h, { stun: 0, cd: 0, dir: 0, path: null, chasing: false, goal: null });
+  else V.initHazard(s, h, r);
   s.hazards.push(h);
-  const tool = def.tool ? `Necesitas: ${ITEMS[def.tool].name}.` : def.type === 'robot' ? 'Inhíbelo (Q) y desármalo con el destornillador.' : def.outside ? 'Métete a la base.' : '';
-  flash(s, def.msg ?? `¡${def.name} en ${r.name}! ${tool}`, 'bad');
+  const tool = def.tool ? `Necesitas: ${ITEMS[def.tool].name}.` : def.hint ? def.hint : def.type === 'robot' ? 'Inhíbelo (Q) y desármalo con el destornillador.' : def.outside ? 'Métete a la base.' : '';
+  flash(s, def.msg ?? `¡${def.name} en ${roomName(s, h.room)}! ${tool}`, 'bad');
   return h;
 }
 
@@ -409,9 +488,9 @@ function updateHazards(s, dt, dm) {
         if (!walkable(s, Math.floor(nx), Math.floor(b.y), 'gas')) b.vx *= -1; else b.x = nx;
         if (!walkable(s, Math.floor(b.x), Math.floor(ny), 'gas')) b.vy *= -1; else b.y = ny;
         if (near(b.x, b.y, 0.6) && p.hit <= 0) {
-          p.salud -= 10; p.hit = 0.8; const d = Math.hypot(p.x - b.x, p.y - b.y) || 1;
+          p.salud -= def.dmg ?? 10; p.hit = 0.8; const d = Math.hypot(p.x - b.x, p.y - b.y) || 1;
           moveBody(s, p, (p.x - b.x) / d * 0.8, (p.y - b.y) / d * 0.8, 0.28, 'p');
-          s.noise = { x: b.x, y: b.y, t: 6 }; say(s, '¡Te golpeó la chatarra! El ruido atrajo vigilancia.', 'warn');
+          s.noise = { x: b.x, y: b.y, t: 6 }; say(s, def.fire ? '¡Te quemó una bola de fuego!' : '¡Te golpeó la chatarra! El ruido atrajo vigilancia.', 'warn');
         }
       }
       s.integ -= 0.01 * dm;
@@ -433,7 +512,10 @@ function updateHazards(s, dt, dm) {
       if (h.stun > 0) { h.stun -= dt; continue; }
       h.cd = Math.max(0, h.cd - dt);
       const dist = Math.hypot(p.x - h.x, p.y - h.y);
-      h.chasing = !p.inDuct && dist < 7 && los(s, h.x, h.y, p.x, p.y);
+      const seen = dist < 7 && los(s, h.x, h.y, p.x, p.y);
+      const smell = def.smell && dist < def.smell && p.inv.some(isContraband);
+      if (seen || smell) h.trackT = def.track ?? 0; else h.trackT = (h.trackT ?? 0) - dt;
+      h.chasing = !p.inDuct && !p.hidden && (seen || smell || h.trackT > 0);
       if (h.chasing) h.goal = [p.x, p.y];
       else if (!h.goal || Math.hypot(h.goal[0] - h.x, h.goal[1] - h.y) < 0.6) {
         const o = pick(s, s.objects.filter((x) => x.t === 'cajon' && !roomAt(s, x.x, x.y)?.restricted));
@@ -441,9 +523,9 @@ function updateHazards(s, dt, dm) {
       }
       follow(s, h, h.goal, def.speed * (h.chasing ? 1 : 0.6), dt, 'd');
       if (!h.chasing && h.obj && def.steals && Math.hypot(h.obj.x + 0.5 - h.x, h.obj.y + 0.5 - h.y) < 1 && h.obj.loot.length) { h.obj.loot = []; say(s, `${def.name} desarmó un cajón en ${roomName(s, roomIdAt(s, h.x, h.y))}.`, 'warn'); }
-      if (dist < 0.75 && h.cd <= 0 && !p.inDuct) { h.cd = 2; p.salud -= def.dmg; p.hit = 0.8; const d = dist || 1; moveBody(s, p, (p.x - h.x) / d * 1.2, (p.y - h.y) / d * 1.2, 0.28, 'p'); say(s, `¡El ${def.name.toLowerCase()} te chocó! (−${def.dmg} salud)`, 'bad'); }
+      if (dist < 0.75 && h.cd <= 0 && !p.inDuct && !p.hidden) { h.cd = 2; p.salud -= def.dmg; if (def.grab) { const it = p.inv.find(isContraband); if (it) { take(s, it); say(s, `${def.name} te arrancó: ${itemName(s, it)}.`, 'bad'); } } p.hit = 0.8; const d = dist || 1; moveBody(s, p, (p.x - h.x) / d * 1.2, (p.y - h.y) / d * 1.2, 0.28, 'p'); say(s, `¡El ${def.name.toLowerCase()} te chocó! (−${def.dmg} salud)`, 'bad'); }
       s.integ -= 0.01 * dm;
-    }
+    } else if (V.updateHazard(s, h, dt, dm)) kill(h);
   }
 }
 
@@ -455,34 +537,42 @@ export function nearby(s) {
     const def = h.def; let d = Infinity;
     if (def.type === 'spread') { for (const t of h.tiles) d = Math.min(d, Math.hypot((t % s.L.W) + 0.5 - p.x, ((t / s.L.W) | 0) + 0.5 - p.y)); }
     else if (def.type === 'bouncer') d = Math.min(...h.bits.map((b) => Math.hypot(b.x - p.x, b.y - p.y)));
+    else if (def.type === 'mold') d = Math.min(...h.blocked.map((i) => Math.hypot(s.L.grates[i][0] + 0.5 - p.x, s.L.grates[i][1] + 0.5 - p.y)));
     else if (def.type !== 'front') d = Math.hypot(h.x - p.x, h.y - p.y);
-    if (d < 1.8 && (def.tool || def.type === 'robot')) out.push({ kind: 'peligro', h, d: 0.1 });
+    if (d < 1.8 && (def.tool || def.type === 'robot' || def.type === 'camera')) out.push({ kind: 'peligro', h, d: -0.1 });
   }
   for (const c of s.crew) { const d = Math.hypot(c.x - p.x, c.y - p.y); if (d < 1.1) out.push({ kind: 'crew', c, d: d - 0.3 }); }
+  out.push(...V.nearbyVillains(s));
   s.objects.forEach((o) => { const d = Math.hypot(o.x + 0.5 - p.x, o.y + 0.5 - p.y); if (d < 1.3) out.push({ kind: 'obj', o, d }); });
   s.L.grates.forEach(([x, y], i) => { const d = Math.hypot(x + 0.5 - p.x, y + 0.5 - p.y); if (d < 0.9) out.push({ kind: 'rejilla', i, d: d + 0.05 }); });
   for (const door of s.map.doors) { const d = Math.min(...door.tiles.map(([x, y]) => Math.hypot(x + 0.5 - p.x, y + 0.5 - p.y))); if (d < 1.4) out.push({ kind: 'puerta', door, d: d + 0.3 }); }
   return out.sort((a, b) => a.d - b.d);
 }
 
-const OBJ_LABEL = { cama: 'Dormir', escondite: 'Escondite', cajon: 'Revisar cajón', mesa: 'Comer', cinta: 'Hacer ejercicio', estudio: 'Estudiar', registro: 'Hackear registro', capcom: 'Radio con la Tierra', nucleo: 'Núcleo de la IA' };
+const OBJ_LABEL = { cama: 'Dormir', escondite: 'Escondite', cajon: 'Revisar cajón', mesa: 'Comer', cinta: 'Hacer ejercicio', estudio: 'Estudiar', registro: 'Hackear registro', capcom: 'Radio con la Tierra', nucleo: 'Núcleo de la IA', casillero: 'Esconderse (F)' };
 export function label(s, n) {
   if (!n) return '';
   if (n.kind === 'obj') return s.L.labels[n.o.t] ?? OBJ_LABEL[n.o.t];
-  if (n.kind === 'crew') return `Hablar con ${n.c.name}`;
+  if (n.kind === 'crew') return n.c.want ? `Hablar con ${n.c.name}` : `Pedir a ${n.c.name} que distraiga`;
+  if (n.kind === 'vil') return V.label(s, n);
   if (n.kind === 'rejilla') return s.p.inDuct ? 'Salir del conducto' : 'Entrar al conducto';
   if (n.kind === 'puerta') return (n.door.open ? 'Cerrar' : 'Abrir') + ' escotilla';
+  if (n.h.def.type === 'camera') return n.h.stun > 0 ? 'Desarmar cámara' : 'Cámara (inhíbela con Q)';
   if (n.h.def.type === 'robot') return n.h.stun > 0 ? 'Desarmar robot' : 'Robot (inhíbelo con Q)';
   return `Resolver: ${n.h.def.name.toLowerCase()}`;
 }
 
 export function interact(s) {
   if (s.over || s.pending) return;
+  if (s.p.hidden) return flash(s, 'Estás escondido. Pulsa F para salir.', 'info');
   const n = nearby(s)[0]; const p = s.p;
   if (!n) return;
   if (n.kind === 'puerta') return toggleDoor(s, n.door);
   if (n.kind === 'crew') return talk(s, n.c);
+  if (n.kind === 'vil') return V.interact(s, n);
   if (n.kind === 'rejilla') {
+    const why = V.grateBlocked(s, n.i); if (why) return flash(s, why, 'warn');
+    V.onGrate(s, n.i);
     if (!p.inDuct && !s.grates[n.i]) { if (!has(s, 'destornillador')) return flash(s, 'La rejilla está atornillada. Fabrica un destornillador (tornillos + placa).', 'warn'); s.grates[n.i] = true; }
     const [gx, gy] = s.L.grates[n.i]; Object.assign(p, { x: gx + 0.5, y: gy + 0.5, inDuct: !p.inDuct }); s.illegal = 1.5;
     return say(s, p.inDuct ? 'Entraste al conducto: aquí no te ven.' : 'Saliste del conducto.', 'info');
@@ -495,6 +585,7 @@ export function interact(s) {
       if (!isNight(s)) return flash(s, 'Solo se duerme con las luces apagadas (22:00).', 'info');
       p.sleep = true; return say(s, 'Duermes… (el tiempo pasa rápido; muévete para despertar)', 'info');
     case 'escondite': s.pending = { kind: 'escondite' }; return;
+    case 'casillero': return toggleHide(s);
     case 'cajon': return start(s, 'cajon', 1.2, o);
     case 'mesa':
       if (b.id !== 'comer') return flash(s, 'Ahora no se sirve comida. Comidas: 07:00, 12:00 y 19:00.', 'info');
@@ -555,19 +646,26 @@ export function resolveCodigo(s, ok) {
 }
 
 function toggleDoor(s, d) {
+  if (!d.open && d.lock === 'energia') { if (!has(s, 'bateria')) return flash(s, `Apagón: la escotilla no tiene energía. Conéctale una batería… o usa los conductos.`, 'warn'); take(s, 'bateria'); d.lock = null; d.open = true; return flash(s, 'Conectaste una batería: la escotilla se abrió.', 'ok'); }
+  if (!d.open && d.lock === 'cuarentena') return flash(s, 'CUARENTENA: sellada por bioseguridad. Espera o entra por los conductos.', 'warn');
   if (!d.open && d.lock && !has(s, d.lock) && !(d.lock === 'tarjeta' && !s.iaOn)) return flash(s, d.lock === 'tarjeta' ? 'Escotilla con tarjeta. Fabrica una tarjeta clonada… o busca otro camino (conductos).' : `Pide un código. Hackea los 3 registros de ${s.L.ai}.`, 'warn');
   d.open = !d.open;
 }
 
 function fixHazard(s, h) {
   const def = h.def;
+  if (def.type === 'camera') {
+    if (h.stun <= 0) return flash(s, 'Primero inhíbela con Q.', 'warn');
+    if (!has(s, 'destornillador')) return flash(s, 'Necesitas un destornillador para desarmarla.', 'warn');
+    s.hazards.splice(s.hazards.indexOf(h), 1); s.stats.solved++; give(s, 'chip'); return flash(s, 'Desarmaste la cámara. Te quedas con un chip.', 'ok');
+  }
   if (def.type === 'robot') {
     if (h.stun <= 0) return flash(s, 'Primero inhíbelo con Q (inhibidor: batería + chip + cable).', 'warn');
     if (!has(s, 'destornillador')) return flash(s, 'Necesitas un destornillador para desarmarlo.', 'warn');
     s.pending = { kind: 'cables', h }; return;
   }
   if (!has(s, def.tool)) return flash(s, `Necesitas: ${ITEMS[def.tool].name}. ${RECIPES.some((r) => r.id === def.tool) ? 'Fabrícalo (tecla C).' : 'Búscalo en los cajones.'}`, 'warn');
-  if (def.type === 'bouncer') { h.bits = h.bits.filter((b) => Math.hypot(b.x - s.p.x, b.y - s.p.y) >= 1.8); say(s, 'Amarraste la chatarra.', 'ok'); if (!h.bits.length) { s.hazards.splice(s.hazards.indexOf(h), 1); s.stats.solved++; flash(s, 'Chatarra asegurada.', 'ok'); } return; }
+  if (def.type === 'bouncer') { h.bits = h.bits.filter((b) => Math.hypot(b.x - s.p.x, b.y - s.p.y) >= 1.8); say(s, def.fire ? 'Apagaste las llamas cercanas.' : 'Amarraste la chatarra.', 'ok'); if (!h.bits.length) { s.hazards.splice(s.hazards.indexOf(h), 1); s.stats.solved++; flash(s, def.fire ? 'Fuego apagado.' : 'Chatarra asegurada.', 'ok'); } return; }
   s.pending = def.cables ? { kind: 'cables', h } : { kind: 'protocolo', id: def.proto, h };
 }
 
@@ -616,11 +714,11 @@ export function stashTake(s, i) { if (s.p.inv.length >= capacity(s)) return fals
 
 export function useQ(s) {
   if (!has(s, 'inhibidor')) return flash(s, 'No tienes inhibidor (batería + chip + cable, 30 de conocimiento).', 'warn');
-  const targets = [...s.drones.filter((d) => d.stun <= 0 && s.iaOn), ...s.hazards.filter((h) => h.def.type === 'robot' && h.stun <= 0)];
+  const targets = [...s.drones.filter((d) => d.stun <= 0 && s.iaOn), ...s.hazards.filter((h) => ['robot', 'camera'].includes(h.def.type) && h.stun <= 0)];
   const t = nearest(targets, s.p.x, s.p.y);
   if (!t || Math.hypot(t.x - s.p.x, t.y - s.p.y) > 3) return flash(s, 'No hay nada que inhibir cerca (3 casillas).', 'warn');
   t.stun = 20; if (t.mode) t.mode = 'patrulla'; take(s, 'inhibidor');
-  flash(s, t.def ? 'Robot inhibido 20 s: ¡desármalo con E!' : 'Vigilancia inhibida por 20 segundos.', 'ok');
+  flash(s, t.def ? `${t.def.type === 'camera' ? 'Cámara' : 'Robot'} inhibido 20 s: ¡desármalo con E!` : 'Vigilancia inhibida por 20 segundos.', 'ok');
 }
 
 export function hint(s) {
