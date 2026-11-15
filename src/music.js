@@ -57,8 +57,15 @@ export const on = () => enabled;
 let vol = 1; try { vol = +(localStorage.getItem('lfr.vol') ?? 1) || 1; } catch { /* nada */ }
 /** Volumen general 0.25..2 (botones − / + en la pausa). */
 export function volume(d = 0) { vol = Math.max(0.25, Math.min(2, Math.round((vol + d) * 4) / 4)); if (master) master.gain.setTargetAtTime(1.6 * vol, ac.currentTime, 0.1); try { localStorage.setItem('lfr.vol', vol); } catch { /* nada */ } return vol; }
-export function toggle() { enabled = !enabled; if (musBus) { musBus.gain.setTargetAtTime(enabled ? MUS_VOL : 0, ac.currentTime, 0.2); trkBus.gain.setTargetAtTime(enabled ? TRK_VOL : 0, ac.currentTime, 0.2); } try { localStorage.setItem('lfr.music', enabled ? '1' : '0'); } catch { /* nada */ } }
+export function toggle() { enabled = !enabled; if (musBus) { musBus.gain.setTargetAtTime(enabled && !ducked ? MUS_VOL : 0, ac.currentTime, 0.2); trkBus.gain.setTargetAtTime(enabled && !ducked ? TRK_VOL : 0, ac.currentTime, 0.2); } try { localStorage.setItem('lfr.music', enabled ? '1' : '0'); } catch { /* nada */ } }
 try { enabled = localStorage.getItem('lfr.music') !== '0'; } catch { /* nada */ }
+
+/** Silencia la música (no los golpes) cuando la ventana no está activa: con dos ventanas en la misma PC no se superponen. */
+let ducked = false;
+export function duck(d) {
+  if (d === ducked || !ac) return; ducked = d; const now = ac.currentTime;
+  musBus.gain.setTargetAtTime(enabled && !d ? MUS_VOL : 0, now, 0.3); trkBus.gain.setTargetAtTime(enabled && !d ? TRK_VOL : 0, now, 0.3);
+}
 
 /** Lo llama el bucle del juego cada cuadro. */
 export function set(newLoc, lvl, isNight) {
@@ -115,7 +122,7 @@ function play(i, t, sx) {
 /** Latido del corazón: lo llama el juego cuando algo te persigue (rate 0..1). */
 let beatNext = 0;
 export function heartbeat(rate) {
-  if (!ac || !enabled || rate <= 0) return; const t = ac.currentTime; if (t < beatNext) return;
+  if (!ac || !enabled || ducked || rate <= 0) return; const t = ac.currentTime; if (t < beatNext) return;
   const gap = 0.95 - rate * 0.55; beatNext = t + gap;
   for (const [dt, v] of [[0, 0.55], [0.16, 0.38]]) { const o = ac.createOscillator(); const g = ac.createGain(); o.frequency.setValueAtTime(70, t + dt); o.frequency.exponentialRampToValueAtTime(38, t + dt + 0.12); g.gain.setValueAtTime(0.0001, t + dt); g.gain.exponentialRampToValueAtTime(v * (0.4 + rate * 0.6), t + dt + 0.015); g.gain.exponentialRampToValueAtTime(0.0001, t + dt + 0.18); o.connect(g).connect(master); o.start(t + dt); o.stop(t + dt + 0.2); }
 }

@@ -985,6 +985,7 @@ function frame(t) {
     if (!menu && !isGuest() && s.pending?.kind === 'respira' && mine(s.pending)) breathGame();
     while (s.sfx?.length) { const k = s.sfx.shift(); M.sting(k); if (NET?.role === 'host') netSfx.push(k); }
     if (NET?.role === 'host' && NET.open && (snapT -= dt) <= 0) { snapT = 1 / Net.SNAP_HZ; NET.send({ t: 's', d: Net.pack(G0, s, netSfx.splice(0)) }); }
+    M.duck(document.hidden || !document.hasFocus());
     M.set(s.cadet ? 'mision' : s.loc, s.cadet ? 0 : musicLevel(), s.cadet ? false : G.isNight(s));
     if (!menu && !s.p.sleep && !s.cadet) M.heartbeat(Math.max(danger(), s.final ? 0.6 : 0));
     if (s.msg && s.msg.text !== lastMsg) { lastMsg = s.msg.text; beep(s.msg.kind === 'bad' ? 200 : s.msg.kind === 'ok' ? 880 : 520, 0.15, s.msg.kind === 'bad' ? 'sawtooth' : 'square'); }
