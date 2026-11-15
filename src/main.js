@@ -15,6 +15,8 @@ const mine = (pd) => !!pd && (NET?.role === 'host' ? (pd.by ?? 0) === 0 : isGues
 import { VILLAINS } from './villains.js';
 import * as M from './music.js';
 import * as Acad from './academia-ui.js';
+import * as X from './extras.js';
+import * as F from './fx.js';
 
 const TS = 16; let ZOOM = 2;
 const cv = document.getElementById('lienzo'); const cx = cv.getContext('2d');
@@ -124,7 +126,14 @@ function drawBase() {
     b.fillStyle = T.wallTop; b.fillRect(px, py, TS, 3);
     b.fillStyle = 'rgba(0,0,0,.25)'; b.fillRect(px + 7, py + 3, 1, TS - 7);
     if (at(x, y + 1) && hashRand(x * 13 + y) > 0.8) { b.fillStyle = hashRand(x + y * 7) > 0.5 ? '#5fb6ff' : '#ffc23d'; b.fillRect(px + 3, py + 6, 2, 2); }
+    // desgaste: óxido que chorrea, rayones y carteles de seguridad
+    const wr = hashRand(x * 41 + y * 29);
+    if (wr > 0.86) { R(b, 'rgba(120,60,20,.45)', px + (wr * 40 % 10 | 0), py + 4, 3, 5); R(b, 'rgba(120,60,20,.25)', px + (wr * 40 % 10 | 0) + 1, py + 9, 1, 3); }
+    else if (wr < 0.07) R(b, 'rgba(255,255,255,.12)', px + 2, py + 6, 6, 1);
+    if (at(x, y + 1) && wr > 0.5 && wr < 0.56) { R(b, '#e8e8e0', px + 3, py + 4, 9, 8); R(b, wr > 0.53 ? '#ffc23d' : '#3d7bff', px + 4, py + 5, 7, 3); R(b, '#333', px + 4, py + 9, 7, 1); R(b, '#333', px + 4, py + 11, 5, 1); }
   }
+  // rayones y marcas en el piso
+  for (let i = 0; i < W * H / 9; i++) { const x = Math.floor(hashRand(i * 3.1) * W), y = Math.floor(hashRand(i * 5.7) * H); if (!at(x, y) || L.rooms[s.map.room[y * W + x]]?.outside) continue; const h = hashRand(i * 9.3); b.fillStyle = `rgba(${h > 0.5 ? '255,255,255' : '0,0,0'},.09)`; b.fillRect(x * TS + (h * 12 | 0), y * TS + (h * 97 % 14 | 0), 2 + (h * 5 | 0), 1); }
   // nombres de las salas
   b.font = '10px VT323'; b.textBaseline = 'top';
   for (const r of L.rooms) { b.fillStyle = 'rgba(0,0,0,.45)'; const w = b.measureText(r.name.toUpperCase()).width; b.fillRect(r.x * TS + 2, r.y * TS + 1, w + 4, 10); b.fillStyle = r.restricted ? '#ff6b6b' : r.outside ? '#ffffff' : '#dfe6f2'; b.fillText(r.name.toUpperCase(), r.x * TS + 4, r.y * TS + 1); }
@@ -307,6 +316,7 @@ function draw(t) {
     if (o.t === 'palanca' && s.final) R(cx, s.final.lever ? '#4dff88' : (Math.floor(t / 200) % 2 ? '#ffc23d' : '#ff4b4b'), px + 6, py - 4, 4, 3);
     if (o.t === 'estudio' && Math.floor(t / 600 + o.x) % 2) R(cx, '#9fd4ff', px + 10, py + 5, 1, 1);
   }
+  F.under(cx, s, t, { vis, G });
   // cosas tiradas
   for (const f of s.floor) if (vis(Math.floor(f.x), Math.floor(f.y))) { const c = ITEMS[f.id]?.tool ? '#ffc23d' : '#c8d2e6'; R(cx, 'rgba(0,0,0,.4)', f.x * TS - 3, f.y * TS + 1, 7, 3); R(cx, c, f.x * TS - 3, f.y * TS - 3, 6, 5); R(cx, '#fff', f.x * TS - 2, f.y * TS - 2, 2, 1); }
   // problemas
@@ -345,13 +355,15 @@ function draw(t) {
   (s.ps ?? [p]).forEach((q, k) => { s.p = q; { const p = q;
   const blink = p.hit > 0 && Math.floor(t / 80) % 2;
   if (p.hidden) { cx.font = '9px VT323'; cx.fillStyle = '#9fd4ff'; cx.fillText('(escondido)', p.hidden.x * TS, p.hidden.y * TS - 14); R(cx, '#fff', p.hidden.x * TS - 3, p.hidden.y * TS - 2, 1, 1); R(cx, '#fff', p.hidden.x * TS + 2, p.hidden.y * TS - 2, 1, 1); }
-  else astro(cx, p.x, p.y + (p.crouch ? 0.12 : 0), p.dir, p.walk * (p.crouch ? 0.5 : 1), PCOL[k], q.down ? false : keys.size > 0 || touch.dx || touch.dy, p.inDuct ? 0.5 : blink ? 0.35 : p.crouch ? 0.8 : 1, PNAME[k], G.isOutside(s) && G.has(s, 'traje'));
+  else astro(cx, p.x, p.y + (p.crouch ? 0.12 : 0), p.dir, p.walk * (p.crouch ? 0.5 : 1), PCOL[k], q.down ? false : keys.size > 0 || touch.dx || touch.dy || q.action?.kind === 'cinta' || Math.hypot(q.vx ?? 0, q.vy ?? 0) > 0.5, p.inDuct ? 0.5 : blink ? 0.35 : p.crouch ? 0.8 : 1, PNAME[k], G.isOutside(s) && G.has(s, 'traje'));
+  if (q.action?.kind === 'cinta' || q.action?.kind === 'cuidar') { cx.font = '9px VT323'; cx.fillStyle = '#4dff88'; cx.fillText(q.action.kind === 'cinta' ? '💪' : '♥', p.x * TS + 7, p.y * TS - 16 - (t / 200 % 3)); }
   if (p.sleep) { cx.fillStyle = '#5ff6ff'; cx.font = '10px VT323'; cx.fillText('z', p.x * TS + 7, p.y * TS - 14 - (t / 300 % 4)); }
     if (s.ps) { cx.font = '9px VT323'; cx.fillStyle = PCOL[k]; cx.fillText(`J${k + 1}`, p.x * TS, p.y * TS - 15); }
     if (p.down) { cx.font = '10px VT323'; cx.fillStyle = Math.floor(t / 250) % 2 ? '#ff4b4b' : '#ffffff'; cx.fillText('¡CAÍDO! Levántame (E)', p.x * TS, p.y * TS - 24); }
   } });
   s.p = pSave;
 
+  F.over(cx, s, t, 1 / 60, { vis, G });
   // luz: noche, tormenta, final
   const night = G.isNight(s); const st = G.storm(s);
   if (night || st || s.final) {
@@ -392,14 +404,14 @@ function draw(t) {
 
   // capa de pantalla (sin cámara)
   cx.setTransform(1, 0, 0, 1, 0, 0);
-  arrowToGoal(t);
-  minimap();
+  F.screenFx(cx, cv, s, t, 1 / 60, { G });
+  if (!sinHud) { arrowToGoal(t); minimap(); }
   cx.textAlign = 'center';
   for (const h of s.hazards) if (h.def.type === 'front' && h.phase === 'aviso') { cx.font = '26px VT323'; cx.fillStyle = Math.floor(t / 250) % 2 ? '#ff4b4b' : '#ffc23d'; cx.fillText(`⚠ ${h.def.name}: ${Math.ceil(h.t)} s`, cv.width / 2, 30); }
   for (const h of s.hazards) if (h.def.type === 'shelter') { cx.font = '26px VT323'; cx.fillStyle = Math.floor(t / 250) % 2 ? '#ff4b4b' : '#ffc23d'; cx.fillText(`⚠ ${h.def.name}: ${Math.ceil(h.t)} s → ${G.roomName(s, h.def.safe[0])}`, cv.width / 2, 30); }
   const ms = s.vil?.mission; if (ms) { cx.font = '20px VT323'; cx.fillStyle = ms.left < 20 && Math.floor(t / 250) % 2 ? '#ff4b4b' : '#d08aff'; cx.fillText(`📻 ${ms.verb} · ${G.roomName(s, ms.room)} · ${Math.ceil(ms.left)} s`, cv.width / 2, 56); arrowTo(ms.x, ms.y, '#d08aff', G.roomName(s, ms.room), t); }
   if (p.hidden) { cx.font = '18px VT323'; cx.fillStyle = '#9fd4ff'; cx.fillText('ESCONDIDO · muévete o pulsa F para salir', cv.width / 2, cv.height - 40); }
-  else if (p.crouch) { cx.font = '16px VT323'; cx.fillStyle = '#9fd4ff'; cx.fillText('agachado: silencioso y difícil de ver', cv.width / 2, cv.height - 40); }
+  else if (p.crouch || X.inShadow(s, p)) { cx.font = '16px VT323'; cx.fillStyle = '#9fd4ff'; cx.fillText([p.crouch && 'agachado: silencioso', X.inShadow(s, p) && 'en la sombra: te ven menos', p.crouch && s.L.theme === 'marte' && 'sin huellas'].filter(Boolean).join(' · '), cv.width / 2, cv.height - 40); }
   if (s.final) { cx.font = '32px VT323'; cx.fillStyle = '#ff4b4b'; cx.fillText(`¡DESPEGUE! ${Math.ceil(s.final.t)} s`, cv.width / 2, 30); }
   // persecución: aviso grande con el tiempo que llevas huyendo
   const hunted = (s.iaOn && s.drones.some((d) => d.mode === 'persigue')) || s.vil?.walkers.some((w) => w.mode === 'persigue' && !w.gone && !w.away);
@@ -541,6 +553,7 @@ function minimap() {
     cx.fillStyle = g === 2 ? '#ffc23d' : r?.id === goal ? '#3a5f9a' : r?.restricted ? '#4a1c1c' : r?.outside ? '#555' : '#2a3448';
     cx.fillRect(ox + x * k, oy + y * k, k, k);
   }
+  for (let y = 0; y < L.H; y++) for (let x = 0; x < L.W; x++) if (s.map.duct[y * L.W + x] && (x + y) % 2 === 0) R(cx, 'rgba(95,246,255,.45)', ox + x * k, oy + y * k, 1, 1);
   for (const h of s.hazards) if (h.def.type !== 'front') R(cx, '#ff8a3d', ox + h.x * k - 1, oy + h.y * k - 1, 3, 3);
   for (const c of s.crew) R(cx, c.color, ox + c.x * k - 1, oy + c.y * k - 1, 2, 2);
   if (s.vil) for (const w of s.vil.walkers) if (!w.gone && !w.away && VILLAINS[w.vid].mode !== 'doble') R(cx, w.mode === 'persigue' ? '#ff3b3b' : '#c08aff', ox + w.x * k - 1, oy + w.y * k - 1, 3, 3);
@@ -567,9 +580,10 @@ function hud() {
   $('m-integ').style.width = `${Math.max(0, s.integ)}%`;
   const vt = $('vitales'); if (vt) { vt.hidden = !!s.cadet; if (!s.cadet && s.vital) vt.innerHTML = '<h3>SOPORTE VITAL</h3>' + Object.entries(T.VITALS).map(([k, n]) => { const v = Math.round(s.vital[k] ?? 100); return `<span class="vt ${v < 25 ? 'bajo' : ''}" title="${n} ${v} %"><small>${n} ${v}</small><b><i style="width:${v}%"></i></b></span>`; }).join(''); }
   const rows = [['❤', 'SALUD', 'salud', 25], ['⚡', 'ENERGÍA', 'energia', 25], ['💪', 'FUERZA', 'fuerza', -1], ['🧠', 'CONOCIM.', 'conoc', -1]];
-  if (L.rooms.some((r) => r.outside)) rows.push(['O₂', 'OXÍGENO', 'o2', 35]);
+  if (!s.cadet) rows.push(['🍽', 'HAMBRE', 'hambre', 20], ['💧', 'SED', 'sed', 20]);
+  if (L.rooms.some((r) => r.outside) || p.o2 < 100) rows.push(['O₂', 'OXÍGENO', 'o2', 35]);
   const pls = s.ps ?? [p];
-  const sh = rows.map(([ic, k, c, low]) => { const vs = pls.map((q) => q[c]); const lo = vs.some((v) => v < low);
+  const sh = rows.map(([ic, k, c, low]) => { const vs = pls.map((q) => q[c] ?? 100); const lo = vs.some((v) => v < low);
     return `<div class="st st-${c} ${lo ? 'bajo' : ''}"><span class="st-ic">${ic}</span><span class="st-k">${k}<b>${vs.map((v, i) => (s.ps ? `<i style="color:${PCOL[i]}">${Math.floor(v)}</i>` : Math.floor(v))).join(' ')}</b></span>${vs.map((v) => bar(v, low)).join('')}</div>`; }).join('');
   if ($('stats').dataset.h !== sh) { $('stats').innerHTML = sh; $('stats').dataset.h = sh; }
   const cap = G.capacity(s); $('cap').textContent = `${p.inv.length}/${cap}`;
@@ -747,6 +761,7 @@ function intro() {
     <p><b>3 formas de escapar:</b> el PLAN (4 piezas), el SABOTAJE (apaga la IA: código + llave) o el MOTÍN (gánate a los 3 compañeros: código + combustible). Personaje: <b>${G.perk(s).name}</b>.</p>
     <p>De día cumple el horario (arriba te dice dónde ir; una flecha te guía). Si faltas o te ven haciendo algo raro, sube la <span style="color:var(--amber)">alerta</span>. A 100: bloqueo y te quitan lo que llevas.</p>
     <p>Tus 3 compañeros te piden piezas: ayúdalos y te devuelven favores. Los problemas se resuelven con protocolos de la NASA.</p>
+    <p class="dato">🛰 DATO REAL: ${F.FACTS[L.theme][Math.floor(Math.random() * F.FACTS[L.theme].length)]}</p>
     <div class="fila"><button id="ok">EMPEZAR ▶</button><button id="ay">? CONTROLES</button></div>`);
   $('ok').onclick = close; $('ay').onclick = () => help(intro);
 }
@@ -754,7 +769,8 @@ function intro() {
 function help(back) {
   menu = 'ayuda';
   open(`<h2>CÓMO SE JUEGA</h2>
-    <p><kbd>WASD</kbd>/<kbd>flechas</kbd> moverse · <kbd>Shift</kbd> agacharse (silencioso) · <kbd>E</kbd> usar / hablar · <kbd>F</kbd> esconderse · <kbd>T</kbd> lanzar pieza (ruido) · <kbd>G</kbd> soltar lo último (o SOLTAR en la mochila) · <kbd>B</kbd> delatar a un compañero · <kbd>I</kbd> mochila · <kbd>C</kbd> fabricar · <kbd>Q</kbd> inhibidor · <kbd>M</kbd> música · <kbd>Esc</kbd> pausa</p>
+    <p><kbd>WASD</kbd>/<kbd>flechas</kbd> moverse · <kbd>Shift</kbd> agacharse (silencioso) · <kbd>E</kbd> usar / hablar · <kbd>F</kbd> esconderse · <kbd>T</kbd> lanzar pieza (ruido) · <kbd>G</kbd> soltar lo último (o SOLTAR en la mochila) · <kbd>B</kbd> delatar a un compañero · <kbd>I</kbd> mochila · <kbd>C</kbd> fabricar · <kbd>Q</kbd> inhibidor · <kbd>M</kbd> música · <kbd>H</kbd> sin HUD (difícil) · <kbd>Esc</kbd> pausa</p>
+    <p><b>Nuevo:</b> los vigías primero <b>dudan</b> (?) y luego persiguen. En las <b>sombras</b> te ven menos. Abrir cajones, fabricar y forzar rejillas hace <b>ruido</b>. Come en los horarios y bebe agua en la mesa (<b>hambre y sed</b>). En Marte dejas <b>huellas</b> (agachado no). Las herramientas se <b>gastan</b>. Hay <b>inspecciones</b> de escondites, cambio de turno a las 14:00, compañeros enfermos y peleas. De noche puedes sacarle la tarjeta a un compañero dormido. Con días perfectos seguidos ganas <b>racha</b>. Tu <b>diario</b> está en la mochila.</p>
     <p><b>Sigilo:</b> si un dron o un guardia te <b>toca</b> con algo raro encima, te atrapan. Caminar hace ruido: agáchate. Escóndete en <b>casilleros</b> o bajo las camas; si te vieron entrar, vendrán a revisar y tendrás que <b>contener la respiración</b>. Lanza piezas para distraerlos.</p>
     <p><b>Manipula:</b> cuando un compañero está contento (ya le hiciste el favor), pídele que distraiga a un dron o guardia 30 s. Soborna al Soplón, desenmascara al Doble, entretén a Volkov.</p>
     <p><b>3 rutas de escape:</b> PLAN (4 piezas) · SABOTAJE (IA apagada + código + llave) · MOTÍN (los 3 compañeros con ♥♥ + código + combustible). <b>Delatar</b> (B) baja tu alerta y te da una tarjeta, pero ese compañero te odiará y te acusará.</p>
@@ -797,12 +813,13 @@ function stashMenu() {
 
 function bagMenu() {
   menu = 'mochila';
-  const it = (id, i) => { const d = ITEMS[id]; return `<div class="it ${d.plan ? 'plan' : d.tool ? 'tool' : ''}">${icon(id)}<span>${G.itemName(s, id)}<small>${d.info ?? (d.tool ? 'Herramienta (te la quitan si te pillan).' : 'Pieza para fabricar. Se puede lanzar (T) para hacer ruido.')}</small>${i != null && !(id in s.L.plan) ? `<button class="soltar" data-soltar="${i}">SOLTAR</button>` : ''}</span></div>`; };
+  const it = (id, i) => { const d = ITEMS[id]; return `<div class="it ${d.plan ? 'plan' : d.tool ? 'tool' : ''}">${icon(id)}<span>${G.itemName(s, id)}${X.usesLeft(s, id) != null ? ` <em style="color:var(--amber)">(${X.usesLeft(s, id)} usos)</em>` : ''}<small>${d.info ?? (d.tool ? 'Herramienta (te la quitan si te pillan).' : 'Pieza para fabricar. Se puede lanzar (T) para hacer ruido.')}</small>${i != null && !(id in s.L.plan) ? `<button class="soltar" data-soltar="${i}">SOLTAR</button>` : ''}</span></div>`; };
   const plan = G.PLAN_IDS.map((id) => `<li class="${G.has(s, id) ? 'ok' : ''}">${s.L.plan[id].name}${G.has(s, id) ? '' : ' — ' + s.L.plan[id].hint}</li>`).join('');
   open(`<div class="bolsa"><section><h2>MOCHILA (${s.p.inv.length}/${G.capacity(s)})</h2>
     <div class="mochila">${s.p.inv.map((x, i) => it(x, i)).join('') || '<p style="color:var(--dim)">(vacía)</p>'}</div>
     <h3>EN TU ESCONDITE (${s.stash.length}/${G.STASH_MAX})</h3><div class="mochila">${s.stash.map((x) => it(x)).join('') || '<p style="color:var(--dim)">(vacío)</p>'}</div>
     <p style="color:var(--dim)">Herramientas encima: ${s.p.inv.filter(G.isContraband).length} · con 2 o más te las quitan en el pase de lista.</p></section>
+    ${s.diary?.length ? `<h3>📓 DIARIO DEL CADETE</h3><ul class="plan">${s.diary.slice(-12).reverse().map((d) => `<li>Día ${d.day} ${G.clock(d.min)} · ${d.text}</li>`).join('')}</ul>` : ''}${s.streak ? `<p style="color:var(--amber)">🔥 Racha de días perfectos: ${s.streak}</p>` : ''}</section>
     <section><h3>PLAN DE REGRESO</h3><ul class="plan">${plan}</ul></section>
     <section><h3>RUTAS DE ESCAPE</h3><ul class="plan">${G.routes(s).map((r) => `<li class="${r.ok ? 'ok' : ''}"><b>${r.name}</b> — ${r.desc}</li>`).join('')}</ul>
     ${s.notes.length ? `<h3>NOTAS ENCONTRADAS EN ESTA PARTIDA</h3>${s.notes.map((i) => `<details class="nota"><summary>📄 ${NOTES[s.loc][i][0]}</summary><p>${NOTES[s.loc][i][1]}</p></details>`).join('')}` : ''}<p style="color:var(--dim)">Notas de ${s.L.name}: ${G.notesKnown(s)}/${NOTES[s.loc].length} <button class="mini" id="archivo">VER ARCHIVO</button></p></section></div>
@@ -842,7 +859,7 @@ function protocolGame(id) {
   const room = h?.room ? G.roomName(s, h.room) : G.roomName(s, G.roomIdAt(s, s.p.x, s.p.y));
   const rq = h ? T.radioQuiz(s.L, (T.SENSORS[h.kind]?.name ?? h.def.name).toLowerCase(), room) : null;
   let stage = aq ? 'alarma' : rq ? 'radio' : 'pasos';
-  let next = 0; const total = 16 + (aq ? 4 : 0) + (rq ? 4 : 0); let time = total;
+  let next = 0; const total = Math.round((16 + (aq ? 4 : 0) + (rq ? 4 : 0)) * X.focus(s)); let time = total;
   const tick = setInterval(() => { time -= 0.1; const el = $('pt'); if (el) el.style.width = `${Math.max(0, time / total * 100)}%`; if (time <= 0) done(false); }, 100);
   let fin = false;
   function done(ok) { if (fin) return; fin = true; clearInterval(tick); beep(ok ? 990 : 140, 0.25, ok ? 'square' : 'sawtooth'); G.resolveProtocol(s, ok); close(); }
@@ -965,6 +982,7 @@ function act(k, who = 0) {
   if (menu === 'fabricar' && k === 'c') return close();
   if (menu === 'mochila' && k === 'i') return close();
   if (k === 'm') { M.toggle(); return; }
+  if (k === 'h') { sinHud = !sinHud; setOpt('sinhud', sinHud ? '1' : '0'); document.body.classList.toggle('sin-hud', sinHud); G.flash(s, sinHud ? 'Modo SIN HUD: sin flecha, mapa ni barras. Guíate por sonidos y luces. (H para volver)' : 'HUD visible.', 'info'); return; }
   if (menu) return;
   if (k === 'e') {
     const had = !!s.pending; G.interact(s); if (isGuest()) return;
@@ -986,7 +1004,7 @@ addEventListener('keydown', (e) => {
   keys.add(k); codes.add(e.code);
   if (s?.ps && !NET && P2KEYS[e.code]) { e.preventDefault(); return act(P2KEYS[e.code], 1); }
   if (k === 'escape' && menu && !['titulo', 'fin', 'protocolo', 'intro', 'codigo', 'cables', 'respira', 'eva', 'academia', 'cadete'].includes(menu)) { if (menu === 'escondite') { if (isGuest()) G.clearPending(s); s.pending = null; } close(); return; }
-  if (['e', 'q', 'c', 'p', 'f', 't', 'g', 'b', 'i', 'm', 'escape'].includes(k)) act(k, isGuest() ? 1 : 0);
+  if (['e', 'q', 'c', 'p', 'f', 't', 'g', 'b', 'i', 'm', 'h', 'escape'].includes(k)) act(k, isGuest() ? 1 : 0);
 });
 addEventListener('keyup', (e) => { keys.delete(e.key.toLowerCase()); codes.delete(e.code); });
 addEventListener('blur', () => { keys.clear(); codes.clear(); });
@@ -1021,6 +1039,7 @@ function musicLevel() {
   return 0;
 }
 // ---------- bucle ----------
+let sinHud = getOpt('sinhud', '0') === '1'; document.body.classList.toggle('sin-hud', sinHud);
 let lastMsg = null; let stepT = 0; let scareT = 0; let chaseT = 0;
 function frame(t) {
   const dt = Math.min(0.05, (t - last) / 1000); last = t;
@@ -1031,25 +1050,30 @@ function frame(t) {
       const key = `${inp.dx},${inp.dy},${inp.crouch}`; inT -= dt; if (menu) { inp.dx = inp.dy = 0; }
       if (key !== lastIn || inT <= 0) { lastIn = key; inT = 0.25; NET.send({ t: 'in', dx: menu ? 0 : inp.dx, dy: menu ? 0 : inp.dy, crouch: inp.crouch }); }
     } else {
-      if (!menu) G.update(s, dt, inp, inp2);
+      if (!menu && s.arrive == null && s.t === 0 && !s.cadet) s.arrive = 3.4;
+      if (!menu && s.arrive > 0) s.arrive -= dt; else if (!menu) G.update(s, dt, inp, inp2);
       if (s.pending && s.pending.by == null && s.ps) { const w = s.pending.who; const i = w ? s.ps.findIndex((q) => q.hidden && Math.hypot(q.hidden.x - w.x, q.hidden.y - w.y) < 1.8) : -1; s.pending.by = Math.max(0, i); }
     }
     if (s.cadet && !menu) Acad.frame(s, dt);
     if (!menu && !isGuest() && s.pending?.kind === 'respira' && mine(s.pending)) breathGame();
     if (!menu && !isGuest() && s.pending?.kind === 'eva' && mine(s.pending)) evaGame();
-    while (s.sfx?.length) { const k = s.sfx.shift(); M.sting(k); if (NET?.role === 'host') netSfx.push(k); }
+    while (s.sfx?.length) { const k = s.sfx.shift(); M.sting(k); if (k === 'visto') F.hit(0.7); if (k === 'atrapado') F.hit(1); if (NET?.role === 'host') netSfx.push(k); }
     if (NET?.role === 'host' && NET.open && (snapT -= dt) <= 0) { snapT = 1 / Net.SNAP_HZ; NET.send({ t: 's', d: Net.pack(G0, s, netSfx.splice(0)) }); }
     M.duck(document.hidden || !document.hasFocus());
     M.set(s.cadet ? 'mision' : s.loc, s.cadet ? 0 : musicLevel(), s.cadet ? false : G.isNight(s));
     if (!menu && !s.p.sleep && !s.cadet) M.heartbeat(Math.max(danger(), s.final ? 0.6 : 0));
     if (s.msg && s.msg.text !== lastMsg) { lastMsg = s.msg.text; beep(s.msg.kind === 'bad' ? 200 : s.msg.kind === 'ok' ? 880 : 520, 0.15, s.msg.kind === 'bad' ? 'sawtooth' : 'square'); }
-    if (!menu && (inp.dx || inp.dy || inp2?.dx || inp2?.dy) && (stepT -= dt) <= 0) { stepT = 0.28; beep(G.isOutside(s) ? 70 : 110, 0.03, 'triangle', 0.02); }
+    if (!menu && (inp.dx || inp.dy || inp2?.dx || inp2?.dy) && (stepT -= dt) <= 0) { stepT = s.p.crouch ? 0.42 : 0.28; F.step(s, s.p, G); }
+    F.tickAudio(s, dt, M.on() && !menu && !document.hidden && !s.over, G);
+    M.suspicion(s.iaOn && !s.cadet ? Math.max(0, ...s.drones.map((d) => (d.mode === 'persigue' ? 0 : d.sus ?? 0))) : 0);
     if (!menu && (s.final || s.hazards.some((h) => h.def.type === 'front' && h.phase === 'aviso')) && Math.floor(t / 500) !== Math.floor((t - dt * 1000) / 500)) beep(660, 0.12, 'sawtooth', 0.025);
     draw(t);
+    if (s.arrive > 0 || (s.arrive == null && s.t === 0 && !s.cadet && !isGuest())) F.arrival(cx, cv, s, s.arrive > 0 ? 1 - s.arrive / 3.4 : 0);
     if (NET && s.pending && !mine(s.pending)) { cx.setTransform(1, 0, 0, 1, 0, 0); cx.font = '22px VT323'; cx.textAlign = 'center'; cx.fillStyle = '#ffc23d'; cx.fillText(`⏸ ${isGuest() ? 'J1' : 'J2'} está en un minijuego…`, cv.width / 2, cv.height - 24); }
     hudT -= dt; if (hudT <= 0) { hud(); hudT = 0.12; }
     saveT -= dt; if (saveT <= 0) { save(); saveT = 10; }
-    if (s?.over && !s.over.shown && !isGuest()) { s.over.shown = true; hud(); if (s.cadet) Acad.debrief(s); else endScreen(); }
+    if (s?.over && !s.over.shown && !isGuest() && s.over.won && !s.cadet && (s.over.cine ??= 4.5) > 0) { s.over.cine -= dt; F.liftoff(cx, cv, s, 1 - s.over.cine / 4.5); }
+    else if (s?.over && !s.over.shown && !isGuest()) { s.over.shown = true; hud(); if (s.cadet) Acad.debrief(s); else endScreen(); }
   }
   requestAnimationFrame(frame);
 }

@@ -59,6 +59,10 @@ export function start() {
   } catch { /* sin audio */ }
 }
 export const on = () => enabled;
+/** Para los efectos de sonido (fx.js): mismo contexto y salida general. */
+export const audio = () => (ac ? { ac, master } : null);
+/** 41 · Capa de tensión: cuando un vigía duda, suma hi-hat y pulso encima de la canción (0..1). */
+let sus = 0; export function suspicion(k) { sus = k; }
 let vol = 1; try { vol = +(localStorage.getItem('lfr.vol') ?? 1) || 1; } catch { /* nada */ }
 /** Volumen general 0.25..2 (botones − / + en la pausa). */
 export function volume(d = 0) { vol = Math.max(0.25, Math.min(2, Math.round((vol + d) * 4) / 4)); if (master) master.gain.setTargetAtTime(1.6 * vol, ac.currentTime, 0.1); try { localStorage.setItem('lfr.vol', vol); } catch { /* nada */ } return vol; }
@@ -98,7 +102,7 @@ function schedule() {
   const bpm = theme.bpm * (level >= 3 ? 1.35 : level >= 2 ? 1.15 : 1);
   const sx = 60 / bpm / 4; // semicorchea
   const gen = !usingTracks(); // con pistas grabadas, la generativa calla (los golpes y el latido siguen)
-  while (next < ac.currentTime + 0.12) { if (gen) play(step, next, sx); step++; next += sx; }
+  while (next < ac.currentTime + 0.12) { if (gen) play(step, next, sx); if (sus > 0.05 && level < 2 && !ducked) layer(step, next, sx); step++; next += sx; }
 }
 function play(i, t, sx) {
   const th = theme; const bar = Math.floor(i / 16); const chordDeg = th.prog[Math.floor(bar / 2) % th.prog.length];
@@ -124,6 +128,12 @@ function play(i, t, sx) {
   if (level === 0 && night && pos === 0 && bar % 4 === 3) note(hz(deg(4) + 36), t, 2, 'sine', 0.02);
 }
 
+function layer(i, t, sx) {
+  const pos = i % 16; const k = Math.min(1, sus);
+  if (pos % 2 === 0) noise(t, 0.03, 0.03 + 0.05 * k, 7000);
+  if (pos % 8 === 0) note(hz(theme.root - 12), t, sx * 3, 'sine', 0.06 + 0.08 * k);
+  if (k > 0.5 && pos === 10) note(hz(theme.root + 13), t, sx * 4, 'sawtooth', 0.015 * k);
+}
 /** Latido del corazón: lo llama el juego cuando algo te persigue (rate 0..1). */
 let beatNext = 0;
 export function heartbeat(rate) {

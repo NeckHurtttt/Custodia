@@ -257,3 +257,7 @@ input.codigo-sala:focus { outline: 2px solid var(--amber); }
 .inf-fila b { height: 6px; background: var(--panel2); display: block; } .inf-fila i { display: block; height: 100%; background: var(--amber); }
 .inf-fila i.ok { background: #4dff88; } .inf-fila i.mal { background: var(--red); }
 .informe p { margin: .3rem 0; }
+
+/* Modo SIN HUD (tecla H): sin barras ni medidores; solo el mapa del juego. */
+body.sin-hud .hudbar .hb-ia, body.sin-hud #stats, body.sin-hud #bloque { visibility: hidden; }
+.dato { color: var(--cyan, #5ff6ff); border-left: 3px solid currentColor; padding-left: .6rem; }
