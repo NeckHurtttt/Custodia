@@ -234,3 +234,7 @@ body.modo-cadete .hb-ia, body.modo-cadete .amenazas, body.modo-cadete .panel .ca
 body.modo-cadete .hudbar { grid-template-columns: minmax(0, 1fr) 150px; }
 .lista { list-style: none; padding: 0; display: grid; gap: .15rem; } .lista li { border-left: 2px solid var(--line); padding-left: .5rem; }
 .estrellas b { font-size: 1.1rem; line-height: 34px; }
+
+/* cooperativo en línea */
+.codigo-sala { display: block; margin: .6rem auto; width: 9ch; text-align: center; font: 3rem VT323, monospace; letter-spacing: .25em; color: var(--amber); background: var(--panel2); border: 2px solid var(--line); border-radius: 6px; padding: .2rem .4rem; text-transform: uppercase; }
+input.codigo-sala:focus { outline: 2px solid var(--amber); }

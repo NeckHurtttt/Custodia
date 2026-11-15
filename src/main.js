@@ -3,7 +3,14 @@ import { ITEMS, PROTOCOLS, DIFS, PERKS } from './common.js';
 import * as Meta from './meta.js';
 import { NOTES } from './story.js';
 import { LOCS } from './locs.js';
-import * as G from './core.js';
+import * as G0 from './core.js';
+import * as Net from './net.js';
+// En línea: NET = conexión ({role:'host'|'guest'}). En el invitado, las acciones del núcleo se mandan al anfitrión.
+let NET = null; let netIn = { dx: 0, dy: 0, crouch: false }; let netDirty = false; let netSfx = []; let snapT = 0; let inT = 0; let lastIn = ''; let pendOpen = false; let gOver = false;
+const isGuest = () => NET?.role === 'guest';
+const G = new Proxy({ ...G0 }, { get(t, k) { if (isGuest() && Net.OPS.has(k)) return (s, ...a) => { NET.send({ t: 'op', k, a }); netDirty = true; return true; }; return t[k]; } });
+/** ¿El minijuego pendiente le toca a esta pantalla? */
+const mine = (pd) => !!pd && (NET?.role === 'host' ? (pd.by ?? 0) === 0 : isGuest() ? pd.by === 1 : true);
 import { VILLAINS } from './villains.js';
 import * as M from './music.js';
 import * as Acad from './academia-ui.js';
@@ -19,7 +26,7 @@ const cam = { x: 0, y: 0 };
 
 // ---------- guardado (una ranura por destino) ----------
 const SKEY = (loc) => `lfr.${loc}`;
-function save() { if (!s || s.over || s.cadet) return; Meta.keepNotes(s); if (s.daily) return; try { localStorage.setItem(SKEY(s.loc), G.serialize(s)); } catch { /* sin almacenamiento */ } }
+function save() { if (!s || s.over || s.cadet || isGuest()) return; Meta.keepNotes(s); if (s.daily) return; try { localStorage.setItem(SKEY(s.loc), G.serialize(s)); } catch { /* sin almacenamiento */ } }
 function load(loc) { try { const raw = localStorage.getItem(SKEY(loc)); return raw ? G.revive(JSON.parse(raw)) : null; } catch { return null; } }
 const getDif = () => { try { return DIFS[localStorage.getItem('lfr.dif')] ? localStorage.getItem('lfr.dif') : 'normal'; } catch { return 'normal'; } };
 const setDif = (d) => { try { localStorage.setItem('lfr.dif', d); } catch { /* nada */ } };
@@ -367,7 +374,7 @@ function draw(t) {
   cx.font = '10px VT323';
   for (const c of s.crew) if (c.say && vis(c.x, c.y)) bubble(c.x * TS, c.y * TS - 18, `${c.name}: ${c.say}`, c.color);
   (s.ps ?? [p]).forEach((q, k) => { const sv = s.p; s.p = q; const p = q;
-    const n = p.down ? null : G.nearby(s)[0]; const key = s.ps ? (k ? 'Enter' : 'E') : 'E';
+    const n = p.down ? null : G.nearby(s)[0]; const key = s.ps && !NET ? (k ? 'Enter' : 'E') : 'E';
     const mate = s.ps?.find((o) => o !== q && o.down && Math.hypot(o.x - q.x, o.y - q.y) < 1.5);
     if (s.action) { const f = s.action.t / s.action.need; R(cx, '#0a0e17', p.x * TS - 12, p.y * TS - 20, 24, 4); R(cx, '#ffc23d', p.x * TS - 12, p.y * TS - 20, 24 * f, 4); }
     else if (mate && !menu) bubble(p.x * TS, p.y * TS - 20, `[${key}] Levantar a J${mate.id}`, '#4dff88');
@@ -604,7 +611,7 @@ function dock() {
   }
   dockPrev = { inv: [...p.inv], got }; s.p = sv;
 }
-$('dock').addEventListener('click', (e) => { const b = e.target.closest('[data-soltar]'); if (b && s && !menu) { const sv = s.p; if (s.ps) s.p = s.ps[+b.dataset.p]; G.dropItem(s, +b.dataset.soltar); s.p = sv; beep(300, 0.06); } });
+$('dock').addEventListener('click', (e) => { const b = e.target.closest('[data-soltar]'); if (b && s && !menu && (!NET || +b.dataset.p === (isGuest() ? 1 : 0))) { const sv = s.p; if (s.ps) s.p = s.ps[+b.dataset.p]; G.dropItem(s, +b.dataset.soltar); s.p = sv; beep(300, 0.06); } });
 
 // Íconos de piezas en pixel art (SVG chico).
 const ICON = {
@@ -639,13 +646,13 @@ function titleScreen() {
     <p class="puntos">⭐ ${mt.pts} PUNTOS · racha ${mt.streak} (mejor ${mt.bestStreak}) · medallas ${Object.keys(mt.medals).length}/${Object.keys(Meta.MEDALS).length}</p>
     <div class="dificultad"><span class="lbl">MODO</span>${[['campana', 'CAMPAÑA · 10 días'], ['noche', 'UNA NOCHE · 7 min']].map(([k, n]) => `<button data-modo="${k}" class="${k === mode ? 'on' : ''}">${n}</button>`).join('')}</div>
     <button id="t-academia" class="academia-btn">🎖 ACADEMIA DE CADETES<small>Entrenamiento para cadetes junior: misiones, lecciones, rangos y certificados</small></button>
-    <div class="dificultad"><span class="lbl">JUGADORES</span>${[['1', '1 JUGADOR'], ['2', '2 · COOPERATIVO (mismo teclado)']].map(([k, n]) => `<button data-jug="${k}" class="${k === getOpt('jug', '1') ? 'on' : ''}">${n}</button>`).join('')}${getOpt('jug', '1') === '2' ? '<small>J1: WASD · E usar · F esconder · Shift izq. agachar · I mochila · C fabricar · T lanzar · Q inhibir — J2: flechas · Enter usar · Ctrl der. esconder · Shift der. agachar · . mochila · - fabricar · , lanzar · Ñ inhibir · ´ soltar</small>' : ''}</div>
+    <div class="dificultad"><span class="lbl">JUGADORES</span>${[['1', '1 JUGADOR'], ['2', '2 · COOPERATIVO (mismo teclado)'], ['3', '🌐 2 · EN LÍNEA']].map(([k, n]) => `<button data-jug="${k}" class="${k === getOpt('jug', '1') ? 'on' : ''}">${n}</button>`).join('')}${getOpt('jug', '1') === '2' ? '<small>J1: WASD · E usar · F esconder · Shift izq. agachar · I mochila · C fabricar · T lanzar · Q inhibir — J2: flechas · Enter usar · Ctrl der. esconder · Shift der. agachar · . mochila · - fabricar · , lanzar · Ñ inhibir · ´ soltar</small>' : getOpt('jug', '1') === '3' ? '<small>ANFITRIÓN: elige un destino abajo y pásale el código a tu compañero. INVITADO: </small><button id="t-unirse">🔗 UNIRSE CON CÓDIGO</button><small>Cada uno juega en su computadora con WASD o flechas.</small>' : ''}</div>
     <div class="dificultad"><span class="lbl">NIVEL</span>${Object.entries(DIFS).map(([k, d]) => Meta.difUnlocked(mt, k) ? `<button data-dif="${k}" class="${k === getDif() ? 'on' : ''}" title="${d.desc}">${d.name.toUpperCase()}</button>` : `<button data-comprar="dif:${k}" class="bloq" title="${d.desc}">🔒 ${d.name.toUpperCase()} · ${d.locked}</button>`).join('')}<small>${DIFS[getDif()].desc}</small></div>
     <div class="dificultad"><span class="lbl">PERSONAJE</span>${Object.entries(PERKS).map(([k, d]) => Meta.isUnlocked(mt, k) ? `<button data-perk="${k}" class="${k === perk ? 'on' : ''}" title="${d.desc}">${d.name.toUpperCase()}</button>` : `<button data-comprar="${k}" class="bloq" title="${d.desc}">🔒 ${d.name.toUpperCase()} · ${d.cost}</button>`).join('')}<small>${PERKS[perk].desc}</small></div>
     <div class="destinos">${cards}</div>
     <div class="fila" style="justify-content:center"><button id="t-reto" class="reto">📅 RETO DEL DÍA${dy.done ? ' · ' + Meta.fmtTime(dy.done) : ''}</button><button id="t-medallas">🏅 MEDALLAS</button><button id="t-archivo">📄 ARCHIVO</button><button id="t-ayuda">? CÓMO SE JUEGA</button></div>
   </div>`);
-  $('ventana').querySelectorAll('[data-loc]').forEach((b) => (b.onclick = () => { M.start(); clearSave(b.dataset.loc); s = G.newGame(b.dataset.loc, undefined, getDif(), { mode, perk, coop: getOpt('jug', '1') === '2', seen: Meta.seenNotes(b.dataset.loc) }); base = null; close(); intro(); }));
+  $('ventana').querySelectorAll('[data-loc]').forEach((b) => (b.onclick = () => { M.start(); clearSave(b.dataset.loc); const online = getOpt('jug', '1') === '3'; s = G.newGame(b.dataset.loc, undefined, getDif(), { mode, perk, coop: getOpt('jug', '1') !== '1', seen: Meta.seenNotes(b.dataset.loc) }); base = null; close(); if (online) lobbyHost(); else intro(); }));
   $('ventana').querySelectorAll('[data-jug]').forEach((b) => (b.onclick = () => { setOpt('jug', b.dataset.jug); titleScreen(); }));
   $('ventana').querySelectorAll('[data-modo]').forEach((b) => (b.onclick = () => { setOpt('modo', b.dataset.modo); titleScreen(); }));
   $('ventana').querySelectorAll('[data-perk]').forEach((b) => (b.onclick = () => { setOpt('perk', b.dataset.perk); titleScreen(); }));
@@ -656,6 +663,64 @@ function titleScreen() {
   $('ventana').querySelectorAll('[data-cont]').forEach((b) => (b.onclick = () => { M.start(); s = load(b.dataset.cont); base = null; close(); }));
   $('t-ayuda').onclick = () => help(titleScreen);
   $('t-academia').onclick = () => { M.start(); Acad.hub(); };
+  if ($('t-unirse')) $('t-unirse').onclick = () => { M.start(); joinScreen(); };
+}
+
+// ---------- en línea ----------
+function netClose() { NET?.close(); NET = null; netIn = { dx: 0, dy: 0, crouch: false }; pendOpen = false; gOver = false; }
+function lobbyHost() {
+  netClose(); menu = 'lobby';
+  open(`<h2>🌐 SALA EN LÍNEA</h2><p id="lb">Creando sala…</p><div class="codigo-sala" id="cod">· · · · ·</div>
+    <p style="color:var(--dim)">Tu compañero abre el juego, elige JUGADORES → EN LÍNEA → UNIRSE CON CÓDIGO y escribe este código. Tú eres J1 (azul), él es J2 (naranja).</p>
+    <div class="fila" style="justify-content:center"><button id="lb-copiar" disabled>📋 COPIAR CÓDIGO</button><button id="lb-cancel">CANCELAR</button></div>`);
+  const msg = (x) => { if ($('lb')) $('lb').textContent = x; };
+  $('lb-cancel').onclick = () => { netClose(); s = null; titleScreen(); };
+  Net.host({
+    onOpen: (code) => { if ($('cod')) $('cod').textContent = code; msg('Esperando a tu compañero…'); const c = $('lb-copiar'); if (c) { c.disabled = false; c.onclick = () => navigator.clipboard?.writeText(code).then(() => (c.textContent = '✓ COPIADO')); } },
+    onJoin: () => { beep(990, 0.2); if (s) G.flash(s, '¡Tu compañero se unió!', 'ok'); if (menu === 'lobby') { close(); intro(); } },
+    onMsg: (m) => {
+      if (!s || !m) return;
+      if (m.t === 'in') netIn = { dx: Math.sign(+m.dx || 0), dy: Math.sign(+m.dy || 0), crouch: !!m.crouch };
+      else if (m.t === 'op') Net.applyOp(G0, s, m.k, Array.isArray(m.a) ? m.a : []);
+    },
+    onLeave: () => { netIn = { dx: 0, dy: 0, crouch: false }; if (s) G.flash(s, `Tu compañero se desconectó. Puede volver con el código ${NET?.code}.`, 'bad'); },
+    onError: (x) => msg('⚠ ' + x),
+  }).then((api) => { if (menu === 'lobby') NET = api; else api.close(); }).catch((e) => msg('⚠ ' + e.message));
+}
+function joinScreen() {
+  netClose(); menu = 'unirse';
+  open(`<h2>🔗 UNIRSE A UNA SALA</h2><p>Escribe el código que te pasó el anfitrión.</p><input id="cod-in" class="codigo-sala" maxlength="5" autocomplete="off" spellcheck="false" placeholder="ABCDE">
+    <p id="lb" style="color:var(--dim)"></p><div class="fila" style="justify-content:center"><button id="go">UNIRSE ▶</button><button id="volver">VOLVER</button></div>`);
+  const inp = $('cod-in'); inp.focus(); inp.oninput = () => (inp.value = Net.cleanCode(inp.value));
+  const msg = (x) => { if ($('lb')) $('lb').textContent = x; };
+  $('volver').onclick = () => { netClose(); titleScreen(); };
+  const go = () => {
+    const code = Net.cleanCode(inp.value); if (code.length < 5) return msg('El código tiene 5 letras.');
+    msg('Conectando…'); $('go').disabled = true; s = null;
+    Net.join(code, {
+      onOpen: () => { msg('¡Conectado! Esperando a que el anfitrión empiece…'); NET?.send({ t: 'in', dx: 0, dy: 0 }); },
+      onMsg: guestMsg,
+      onLeave: () => { netClose(); s = null; menu = 'fin'; open(`<h2>CONEXIÓN PERDIDA</h2><p>Se cortó la conexión con el anfitrión. Si sigue en la partida, puedes volver a unirte con el mismo código.</p><div class="fila" style="justify-content:center"><button id="menu">MENÚ</button></div>`); $('menu').onclick = titleScreen; },
+      onError: (x) => { msg('⚠ ' + x); if ($('go')) $('go').disabled = false; },
+    }).then((api) => { NET = api; }).catch((e) => { msg('⚠ ' + e.message); $('go').disabled = false; });
+  };
+  $('go').onclick = go; inp.onkeydown = (e) => { if (e.key === 'Enter') go(); e.stopPropagation(); };
+}
+function guestMsg(m) {
+  if (!m) return;
+  if (m.t === 'lleno') { netClose(); return $('lb') && ($('lb').textContent = '⚠ Esa sala ya tiene dos jugadores.'); }
+  if (m.t !== 's') return;
+  const first = !s; const r = Net.unpack(G0, m.d, 1); s = r.s; if (first) { base = null; if (menu === 'unirse') close(); G.flash(s, `Estás en ${s.L.name} como J2 (naranja). ¡Suerte!`, 'ok'); }
+  for (const k of r.sfx) M.sting(k);
+  if (s.over) { s.over.shown = true; if (!gOver) { gOver = true; close(); hud(); endScreen(); } return; }
+  if (gOver) { gOver = false; if (menu === 'fin') close(); base = null; }
+  if (!mine(s.pending)) pendOpen = false;
+  else if (!pendOpen && !menu) { pendOpen = true; openPending(); }
+  if (netDirty) { netDirty = false; if (menu === 'fabricar') craftMenu(); else if (menu === 'escondite') stashMenu(); else if (menu === 'mochila') bagMenu(); }
+}
+function openPending() {
+  const pd = s.pending?.kind;
+  if (pd === 'escondite') stashMenu(); else if (pd === 'protocolo') protocolGame(s.pending.id); else if (pd === 'codigo') codeGame(); else if (pd === 'cables') cablesGame(); else if (pd === 'respira') breathGame();
 }
 
 function medalsScreen() {
@@ -724,7 +789,7 @@ function stashMenu() {
     <div class="fila"><button id="cerrar">CERRAR</button></div>`);
   $('ventana').querySelectorAll('[data-poner]').forEach((b) => (b.onclick = () => { G.stashPut(s, +b.dataset.poner); stashMenu(); }));
   $('ventana').querySelectorAll('[data-sacar]').forEach((b) => (b.onclick = () => { G.stashTake(s, +b.dataset.sacar); stashMenu(); }));
-  $('cerrar').onclick = () => { s.pending = null; close(); };
+  $('cerrar').onclick = () => { if (isGuest()) G.clearPending(s); s.pending = null; close(); };
 }
 
 function bagMenu() {
@@ -762,7 +827,7 @@ function breathGame() {
     if (Math.floor(time * 4) !== Math.floor((time - dt) * 4)) beep(55 + out * 30, 0.1, 'sine', 0.08);
     if (out > 1.6) done(false); else if (time >= total) done(true);
   }, 50);
-  function done(ok) { clearInterval(tick); beep(ok ? 660 : 90, 0.4, ok ? 'triangle' : 'sawtooth', 0.06); G.resolveBreath(s, ok); close(); }
+  function done(ok) { clearInterval(tick); beep(ok ? 660 : 90, 0.4, ok ? 'triangle' : 'sawtooth', 0.06); if (s.ps && !isGuest()) s.p = s.ps[s.pending?.by ?? 0]; G.resolveBreath(s, ok); close(); }
 }
 
 // Minijuego 1: protocolo NASA, tocar los pasos en orden.
@@ -822,7 +887,7 @@ function nextUnlock(total) {
   return n ? `${n[1]} (${n[2]} pts, te faltan ${Math.max(0, n[2] - total)})` : 'ya tienes todo';
 }
 function endScreen() {
-  menu = 'fin'; clearSave(s.loc);
+  menu = 'fin'; if (!isGuest()) clearSave(s.loc);
   const o = s.over; if (o.won && !s.daily) setBest(s.loc, o.stars);
   const r = Meta.finish(s); const dr = r.daily;
   const share = s.daily ? `LIFELINE:RUTINA · Reto ${Meta.today()} · ${s.L.name}: ${o.won ? `escapé en ${Meta.fmtTime(s.t)} ${'★'.repeat(o.stars)}` : 'no escapé 💀'} · atrapado ${s.stats.caught}× · https://neckhurtttt.github.io/Custodia/` : '';
@@ -834,10 +899,10 @@ function endScreen() {
     ${r.medals.map((id) => `<div class="medalla si nueva"><b>🏅 ${Meta.MEDALS[id][0]}</b><small>${Meta.MEDALS[id][1]}</small></div>`).join('')}
     ${dr ? `<p>${dr.isNew ? '¡NUEVO RÉCORD DEL DÍA!' : dr.best ? `Tu récord de hoy: ${Meta.fmtTime(dr.best)}` : ''}</p>` : ''}
     ${!o.won ? `<p style="color:var(--dim)">Siguiente desbloqueo: ${nextUnlock(r.total)}</p>` : ''}
-    <div class="fila" style="justify-content:center">${s.daily ? '<button id="compartir">📋 COMPARTIR RESULTADO</button>' : '<button id="otra">JUGAR OTRA VEZ ▶</button>'}<button id="menu">MENÚ</button></div></div>`);
+    <div class="fila" style="justify-content:center">${s.daily ? '<button id="compartir">📋 COMPARTIR RESULTADO</button>' : isGuest() ? '<span style="color:var(--dim)">El anfitrión puede empezar otra partida.</span>' : '<button id="otra">JUGAR OTRA VEZ ▶</button>'}<button id="menu">MENÚ</button></div></div>`);
   if (s.daily) $('compartir').onclick = () => { navigator.clipboard?.writeText(share).then(() => ($('compartir').textContent = '✓ COPIADO'), () => prompt('Copia tu resultado:', share)); };
-  else $('otra').onclick = () => { s = G.newGame(s.loc, undefined, s.dif, { mode: s.mode, perk: s.perk, seen: Meta.seenNotes(s.loc) }); base = null; close(); intro(); };
-  $('menu').onclick = titleScreen;
+  else if ($('otra')) $('otra').onclick = () => { s = G.newGame(s.loc, undefined, s.dif, { mode: s.mode, perk: s.perk, coop: !!s.ps, seen: Meta.seenNotes(s.loc) }); base = null; close(); intro(); };
+  $('menu').onclick = () => { netClose(); titleScreen(); };
 }
 
 // ---------- controles ----------
@@ -849,9 +914,9 @@ function act(k, who = 0) {
   if (k === 'm') { M.toggle(); return; }
   if (menu) return;
   if (k === 'e') {
-    G.interact(s);
-    const pd = s.pending?.kind;
-    if (pd === 'escondite') stashMenu(); else if (pd === 'protocolo') protocolGame(s.pending.id); else if (pd === 'codigo') codeGame(); else if (pd === 'cables') cablesGame();
+    const had = !!s.pending; G.interact(s); if (isGuest()) return;
+    if (!had && s.pending) s.pending.by = who;
+    if (s.pending && s.pending.by === who) openPending();
   } else if (k === 'q') G.useQ(s);
   else if (k === 'c') craftMenu();
   else if (k === 'f') G.toggleHide(s);
@@ -859,16 +924,16 @@ function act(k, who = 0) {
   else if (k === 'g') G.dropItem(s);
   else if (k === 'b') G.betray(s);
   else if (k === 'i') bagMenu();
-  else if (k === 'p' || k === 'escape') { open(`<h2>PAUSA</h2><div class="fila"><button id="seguir">SEGUIR [Esc]</button><button id="mus">${M.on() ? 'QUITAR MÚSICA' : 'PONER MÚSICA'}</button><button id="vmenos">VOL −</button><span id="vol">${Math.round(M.volume() * 100)} %</span><button id="vmas">VOL +</button><button id="ay">AYUDA</button><button id="salir">SALIR AL MENÚ (se guarda)</button></div>`); menu = 'pausa'; $('mus').onclick = () => { M.toggle(); close(); act('p'); }; $('vmenos').onclick = () => { $('vol').textContent = Math.round(M.volume(-0.25) * 100) + ' %'; }; $('vmas').onclick = () => { $('vol').textContent = Math.round(M.volume(0.25) * 100) + ' %'; }; $('seguir').onclick = close; $('ay').onclick = () => help(() => { close(); act('p'); }); $('salir').onclick = () => { save(); titleScreen(); }; }
+  else if (k === 'p' || k === 'escape') { open(`<h2>PAUSA</h2><div class="fila"><button id="seguir">SEGUIR [Esc]</button><button id="mus">${M.on() ? 'QUITAR MÚSICA' : 'PONER MÚSICA'}</button><button id="vmenos">VOL −</button><span id="vol">${Math.round(M.volume() * 100)} %</span><button id="vmas">VOL +</button><button id="ay">AYUDA</button><button id="salir">SALIR AL MENÚ (se guarda)</button></div>`); menu = 'pausa'; $('mus').onclick = () => { M.toggle(); close(); act('p'); }; $('vmenos').onclick = () => { $('vol').textContent = Math.round(M.volume(-0.25) * 100) + ' %'; }; $('vmas').onclick = () => { $('vol').textContent = Math.round(M.volume(0.25) * 100) + ' %'; }; $('seguir').onclick = close; $('ay').onclick = () => help(() => { close(); act('p'); }); $('salir').onclick = () => { save(); netClose(); titleScreen(); }; }
 }
 addEventListener('keydown', (e) => {
   const k = e.key.toLowerCase();
   if (['arrowup', 'arrowdown', 'arrowleft', 'arrowright', ' '].includes(k)) e.preventDefault();
   if (e.repeat) return;
   keys.add(k); codes.add(e.code);
-  if (s?.ps && P2KEYS[e.code]) { e.preventDefault(); return act(P2KEYS[e.code], 1); }
-  if (k === 'escape' && menu && !['titulo', 'fin', 'protocolo', 'intro', 'codigo', 'cables', 'respira', 'academia', 'cadete'].includes(menu)) { if (menu === 'escondite') s.pending = null; close(); return; }
-  if (['e', 'q', 'c', 'p', 'f', 't', 'g', 'b', 'i', 'm', 'escape'].includes(k)) act(k, 0);
+  if (s?.ps && !NET && P2KEYS[e.code]) { e.preventDefault(); return act(P2KEYS[e.code], 1); }
+  if (k === 'escape' && menu && !['titulo', 'fin', 'protocolo', 'intro', 'codigo', 'cables', 'respira', 'academia', 'cadete'].includes(menu)) { if (menu === 'escondite') { if (isGuest()) G.clearPending(s); s.pending = null; } close(); return; }
+  if (['e', 'q', 'c', 'p', 'f', 't', 'g', 'b', 'i', 'm', 'escape'].includes(k)) act(k, isGuest() ? 1 : 0);
 });
 addEventListener('keyup', (e) => { keys.delete(e.key.toLowerCase()); codes.delete(e.code); });
 addEventListener('blur', () => { keys.clear(); codes.clear(); });
@@ -885,7 +950,7 @@ document.querySelectorAll('.cruz button').forEach((b) => {
 $('t-e').onclick = () => act('e'); $('t-f').onclick = () => act('f'); $('t-t').onclick = () => act('t'); $('t-i').onclick = () => act('i'); $('t-sh').onclick = () => { touch.crouch = !touch.crouch; $('t-sh').classList.toggle('sel', touch.crouch); }; $('t-q').onclick = () => act('q');
 
 function input() {
-  let dx = touch.dx, dy = touch.dy; const co = !!s?.ps;
+  let dx = touch.dx, dy = touch.dy; const co = !!s?.ps && !NET;
   if (keys.has('a') || (!co && keys.has('arrowleft'))) dx -= 1; if (keys.has('d') || (!co && keys.has('arrowright'))) dx += 1;
   if (keys.has('w') || (!co && keys.has('arrowup'))) dy -= 1; if (keys.has('s') || (!co && keys.has('arrowdown'))) dy += 1;
   return { dx, dy, crouch: co ? codes.has('ShiftLeft') : keys.has('shift') || !!touch.crouch };
@@ -908,20 +973,28 @@ function frame(t) {
   const dt = Math.min(0.05, (t - last) / 1000); last = t;
   if (s) {
     const inp = input();
-    const inp2 = s.ps ? input2() : null;
-    if (!menu) G.update(s, dt, inp, inp2);
+    const inp2 = s.ps ? (NET?.role === 'host' ? netIn : input2()) : null;
+    if (isGuest()) {
+      const key = `${inp.dx},${inp.dy},${inp.crouch}`; inT -= dt; if (menu) { inp.dx = inp.dy = 0; }
+      if (key !== lastIn || inT <= 0) { lastIn = key; inT = 0.25; NET.send({ t: 'in', dx: menu ? 0 : inp.dx, dy: menu ? 0 : inp.dy, crouch: inp.crouch }); }
+    } else {
+      if (!menu) G.update(s, dt, inp, inp2);
+      if (s.pending && s.pending.by == null && s.ps) { const w = s.pending.who; const i = w ? s.ps.findIndex((q) => q.hidden && Math.hypot(q.hidden.x - w.x, q.hidden.y - w.y) < 1.8) : -1; s.pending.by = Math.max(0, i); }
+    }
     if (s.cadet && !menu) Acad.frame(s, dt);
-    if (!menu && s.pending?.kind === 'respira') breathGame();
-    while (s.sfx?.length) { const k = s.sfx.shift(); M.sting(k); }
+    if (!menu && !isGuest() && s.pending?.kind === 'respira' && mine(s.pending)) breathGame();
+    while (s.sfx?.length) { const k = s.sfx.shift(); M.sting(k); if (NET?.role === 'host') netSfx.push(k); }
+    if (NET?.role === 'host' && NET.open && (snapT -= dt) <= 0) { snapT = 1 / Net.SNAP_HZ; NET.send({ t: 's', d: Net.pack(G0, s, netSfx.splice(0)) }); }
     M.set(s.cadet ? 'mision' : s.loc, s.cadet ? 0 : musicLevel(), s.cadet ? false : G.isNight(s));
     if (!menu && !s.p.sleep && !s.cadet) M.heartbeat(Math.max(danger(), s.final ? 0.6 : 0));
-    if (s.msg && s.msg !== lastMsg) { lastMsg = s.msg; beep(s.msg.kind === 'bad' ? 200 : s.msg.kind === 'ok' ? 880 : 520, 0.15, s.msg.kind === 'bad' ? 'sawtooth' : 'square'); }
+    if (s.msg && s.msg.text !== lastMsg) { lastMsg = s.msg.text; beep(s.msg.kind === 'bad' ? 200 : s.msg.kind === 'ok' ? 880 : 520, 0.15, s.msg.kind === 'bad' ? 'sawtooth' : 'square'); }
     if (!menu && (inp.dx || inp.dy || inp2?.dx || inp2?.dy) && (stepT -= dt) <= 0) { stepT = 0.28; beep(G.isOutside(s) ? 70 : 110, 0.03, 'triangle', 0.02); }
     if (!menu && (s.final || s.hazards.some((h) => h.def.type === 'front' && h.phase === 'aviso')) && Math.floor(t / 500) !== Math.floor((t - dt * 1000) / 500)) beep(660, 0.12, 'sawtooth', 0.025);
     draw(t);
+    if (NET && s.pending && !mine(s.pending)) { cx.setTransform(1, 0, 0, 1, 0, 0); cx.font = '22px VT323'; cx.textAlign = 'center'; cx.fillStyle = '#ffc23d'; cx.fillText(`⏸ ${isGuest() ? 'J1' : 'J2'} está en un minijuego…`, cv.width / 2, cv.height - 24); }
     hudT -= dt; if (hudT <= 0) { hud(); hudT = 0.12; }
     saveT -= dt; if (saveT <= 0) { save(); saveT = 10; }
-    if (s?.over && !s.over.shown) { s.over.shown = true; hud(); if (s.cadet) Acad.debrief(s); else endScreen(); }
+    if (s?.over && !s.over.shown && !isGuest()) { s.over.shown = true; hud(); if (s.cadet) Acad.debrief(s); else endScreen(); }
   }
   requestAnimationFrame(frame);
 }
@@ -930,4 +1003,4 @@ Acad.init({ open, close, setMenu: (v) => { menu = v; }, getS: () => s, setS: (x)
   toast: (txt) => { if (s) G.flash(s, txt, 'info'); }, pause: () => { if (!menu) act('p'); } });
 if ('serviceWorker' in navigator && location.protocol.startsWith('http')) navigator.serviceWorker.register('sw.js').catch(() => {});
 document.fonts?.load('16px VT323').finally(() => { titleScreen(); requestAnimationFrame(frame); });
-window.lfr = { get s() { return s; }, get menu() { return menu; }, G, draw, hud, dock }; // para depurar y para los bots de prueba // para depurar y para los bots de prueba
+window.lfr = { get s() { return s; }, get menu() { return menu; }, get net() { return NET; }, G, draw, hud, dock }; // para depurar y para los bots de prueba

@@ -28,6 +28,14 @@ En Luna y Marte hay **superficie**: sin traje se acaba el oxígeno en segundos.
 
 Controles: `WASD`/flechas · `E` usar/hablar · `C` fabricar · `Q` inhibidor · `P` pausa. En el teléfono aparecen botones.
 
+## Cooperativo en línea
+
+En el título: **JUGADORES → 🌐 EN LÍNEA**.
+- **Anfitrión:** elige un destino; aparece un código de 5 letras. Pásaselo a tu compañero.
+- **Invitado:** **UNIRSE CON CÓDIGO** y escribe el código. Juega como J2 (naranja) con WASD o flechas.
+
+La conexión es directa entre las dos computadoras (WebRTC con PeerJS; el servidor público gratis de PeerJS solo los presenta). El anfitrión corre la partida y le manda al invitado el estado 12 veces por segundo; el invitado manda sus controles. Si el invitado se cae, puede volver con el mismo código. El anfitrión no debe minimizar la pestaña (el navegador la pausa). En redes muy cerradas (algunas de universidad) puede no conectar.
+
 ## Técnica
 HTML + JavaScript sin dependencias. `src/core.js` es la lógica (sin pantalla) y tiene pruebas: `npm test`.
 Fuente VT323 (licencia OFL, `fonts/`).
