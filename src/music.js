@@ -2,9 +2,9 @@
 // Cada destino tiene su tema; la intensidad (0 calma · 1 tensión · 2 persecución · 3 huida final) suma capas.
 const THEMES = {
   estacion: { bpm: 84, root: 45, scale: [0, 2, 3, 5, 7, 8, 10], prog: [0, 5, 3, 4], lead: 'triangle', pad: 'sawtooth' },   // La menor, frío y metálico
-  luna: { bpm: 66, root: 50, scale: [0, 2, 3, 5, 7, 9, 10], prog: [0, 3, 5, 4], lead: 'sine', pad: 'triangle' },             // Re dórico, vacío y lento
+  luna: { bpm: 66, root: 48, scale: [0, 2, 3, 5, 7, 9, 10], prog: [0, 3, 5, 4], lead: 'sine', pad: 'triangle' },             // Do dórico (tono de su canción), vacío y lento
   mision: { bpm: 100, root: 48, scale: [0, 2, 4, 5, 7, 9, 11], prog: [0, 4, 5, 3], lead: 'triangle', pad: 'triangle' },     // Do mayor: control de misión, con ánimo
-  marte: { bpm: 96, root: 40, scale: [0, 1, 3, 5, 7, 8, 10], prog: [0, 1, 5, 4], lead: 'square', pad: 'sawtooth' },          // Mi frigio, áspero
+  marte: { bpm: 96, root: 38, scale: [0, 1, 3, 5, 7, 8, 10], prog: [0, 1, 5, 4], lead: 'square', pad: 'sawtooth' },          // Re frigio (tono de su canción), áspero
 };
 let ac = null, master = null, musBus = null, lp = null, delay = null, enabled = true;
 let theme = THEMES.estacion, loc = null, level = 0, night = false, timer = null, step = 0, next = 0;
@@ -27,9 +27,14 @@ function setTracks(l) {
   });
 }
 const usingTracks = () => trk.ok[0] || trk.ok[1];
+let wasPanic = false, tapeT = 0, panicLast = -99;
 function mixTracks() {
   if (!usingTracks()) return;
   const panic = level >= 2 && trk.ok[1] || !trk.ok[0]; const now = ac.currentTime;
+  // la crisis empieza desde su intro cada vez (sube de a poco); en la huida final va 8 % más rápida
+  if (panic && !wasPanic && trk.ok[0] && trk.els[1] && now - panicLast > 4) trk.els[1].currentTime = 0; // si el peligro parpadea, no reinicia
+  if (panic) panicLast = now; wasPanic = panic;
+  const pe = trk.els[1]; if (pe && !tapeT) { pe.preservesPitch = true; pe.playbackRate = level >= 3 ? 1.08 : 1; }
   trk.gains.forEach((g, i) => g.gain.setTargetAtTime((i === 1) === panic ? (night && !panic ? 0.7 : 1) : 0, now, panic ? 0.25 : 0.9));
   for (const [i, e] of trk.els.entries()) if (trk.ok[i] && e.paused) e.play().catch(() => {});
 }
@@ -131,11 +136,20 @@ export function sting(kind) {
   if (!ac || !enabled) return; const t = ac.currentTime + 0.01;
   if (t - lastSting < 0.25 && kind === 'visto') return; lastSting = t;
   if (kind === 'visto') { for (const f of [hz(theme.root + 24), hz(theme.root + 25), hz(theme.root + 31)]) note(f, t, 0.7, 'sawtooth', 0.05, master); noise(t, 0.3, 0.08, 3000, master); }
-  else if (kind === 'atrapado') { kick(t, 0.9); for (const f of [hz(theme.root - 12), hz(theme.root - 11)]) note(f, t, 1.4, 'sawtooth', 0.08, master); }
+  else if (kind === 'atrapado') { tapeStop(); kick(t, 0.9); for (const f of [hz(theme.root - 12), hz(theme.root - 11)]) note(f, t, 1.4, 'sawtooth', 0.08, master); }
   else if (kind === 'alarma') { const o = ac.createOscillator(); const g = ac.createGain(); o.type = 'square'; o.frequency.setValueAtTime(600, t); for (let k = 0; k < 4; k++) { o.frequency.linearRampToValueAtTime(900, t + k * 0.4 + 0.2); o.frequency.linearRampToValueAtTime(600, t + k * 0.4 + 0.4); } g.gain.setValueAtTime(0.03, t); g.gain.exponentialRampToValueAtTime(0.0001, t + 1.6); o.connect(g).connect(master); o.start(t); o.stop(t + 1.7); }
   else if (kind === 'radio') { noise(t, 0.25, 0.06, 2000, master); note(1200, t + 0.25, 0.08, 'square', 0.03, master); note(1500, t + 0.36, 0.08, 'square', 0.03, master); }
   else if (kind === 'susto') { noise(t, 0.5, 0.35, 800, master); for (const f of [hz(theme.root + 36), hz(theme.root + 37), hz(theme.root + 42)]) note(f, t, 1.1, 'sawtooth', 0.09, master); kick(t, 1); }
   else if (kind === 'nota') { for (const [k, f] of [[0, 660], [0.12, 880], [0.24, 1320]]) note(f, t + k, 0.3, 'sine', 0.06, master); }
   else if (kind === 'boom') { noise(t, 0.8, 0.3, 200, master); kick(t, 1); }
 }
-export const trackState = () => ({ loc: trk.loc, ok: [...trk.ok], gain: trk.gains.map((g) => +g.gain.value.toFixed(2)), time: trk.els.map((e) => +e.currentTime.toFixed(1)), gen: !usingTracks() }); // para depurar
+export const trackState = () => ({ rate: trk.els.map((e) => e.playbackRate), loc: trk.loc, ok: [...trk.ok], gain: trk.gains.map((g) => +g.gain.value.toFixed(2)), time: trk.els.map((e) => +e.currentTime.toFixed(1)), gen: !usingTracks() }); // para depurar
+
+/** Al atraparte: la música se frena como una cinta (baja el tono) y vuelve. */
+function tapeStop() {
+  if (!usingTracks() || tapeT) return; const e = trk.els[wasPanic ? 1 : 0]; if (!e) return;
+  e.preservesPitch = false; let r = 1; tapeT = setInterval(() => {
+    r -= 0.07; if (r > 0.3) { e.playbackRate = r; return; }
+    clearInterval(tapeT); setTimeout(() => { e.playbackRate = 1; e.preservesPitch = true; tapeT = 0; }, 450);
+  }, 50);
+}
