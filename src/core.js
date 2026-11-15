@@ -5,6 +5,8 @@ export const perk = (s) => PERKS[s.perk] ?? PERKS.novato;
 export const dif = (s) => DIFS[s.dif] ?? DIFS.normal;
 import { LOCS } from './locs.js';
 import * as V from './villains.js';
+import { trainRecord, tickVital, restoreVital, newTrain, PREBREATHE, VITALS } from './trainer.js';
+export { trainRecord };
 
 export const DAYS = 10;
 export const MIN_PER_SEC = 5.5;        // 1 s real = 5,5 min de juego (ritmo frenético)
@@ -121,6 +123,7 @@ export function newGame(loc = 'estacion', seed = Date.now() & 0x7fffffff, difKey
     vil: null, shake: 0, sfx: [], floor: [],
     drones: [], hazards: [], crew: [], log: [], block: -1, blockStart: 0, checked: false, ate: false, worked: 0, illegal: 0,
     pending: null, final: null, over: null, msg: null, events: [], noise: null, stats: { caught: 0, solved: 0, favors: 0, alertMax: 0, spotted: 0, hid: 0 },
+    train: newTrain(), vital: { o2: 100, agua: 100, energia: 100 },
   };
   if (opts.coop) { s.ps = [s.p, { ...s.p, x: 4.5, y: 6.5, inv: ['cinta'], id: 2 }]; s.p.id = 1; }
   linkAction(s);
@@ -154,7 +157,7 @@ export const NIGHT_SPEED = 4 * 0.3125 / 5.5; // en UNA NOCHE el reloj va más le
 export function revive(o) {
   o.L = LOCS[o.loc]; const map = buildMap(o.L);
   (o.doorsOpen ?? []).forEach((v, i) => { if (map.doors[i]) map.doors[i].open = v; }); delete o.doorsOpen;
-  o.map = map; o.pending = null; delete o.action; if (o.ps) o.p = o.ps[0]; for (const q of o.ps ?? [o.p]) q.action = null; linkAction(o); o.escort = null; o.floor ??= []; o.mode ??= 'campana'; o.perk ??= 'novato'; o.seen ??= []; o.notes ??= []; o.t ??= 0;
+  o.map = map; o.pending = null; delete o.action; if (o.ps) o.p = o.ps[0]; for (const q of o.ps ?? [o.p]) q.action = null; linkAction(o); o.escort = null; o.floor ??= []; o.mode ??= 'campana'; o.perk ??= 'novato'; o.seen ??= []; o.notes ??= []; o.t ??= 0; o.train ??= newTrain(); o.vital ??= { o2: 100, agua: 100, energia: 100 };
   for (const c of o.crew) { c.trust ??= 0; c.tellCd ??= 0; }
   for (const h of o.hazards) h.def = HAZARDS[h.kind];
   (o.doorsLock ?? []).forEach((v, i) => { if (map.doors[i]) map.doors[i].lock = v; }); delete o.doorsLock;
@@ -303,13 +306,16 @@ export function update(s, dt, input = { dx: 0, dy: 0 }, input2 = null) {
       let sp = (p.energia <= 0 ? 2.2 : 4.4) * (p.crouch ? 0.52 : 1) * (perk(s).speed ?? 1) * dt;
       if (slowHere(s)) sp *= 0.5;
       p.dir = Math.atan2(inp.dy, inp.dx); p.walk += dt;
+      const ox = p.x, oy = p.y, wasOut = isOutside(s);
       moveBody(s, p, (inp.dx / len) * sp, (inp.dy / len) * sp, 0.28, 'p');
+      if (!wasOut && !p.inDuct && !s.cadet && isOutside(s) && has(s, 'traje')) evaGate(s, p, k, ox, oy);
     }
     if (s.action) { s.action.t += dt; if (s.action.t >= s.action.need) { const a = s.action; s.action = null; finishAction(s, a); } }
   });
   s.p = ps[0];
 
   const h0 = ps.map((p) => p.salud), i0 = s.integ; updateHazards(s, dt, dm);
+  if (!s.cadet) { const low = tickVital(s, dm); if (low.length && !s.vitalWarn) { s.vitalWarn = true; flash(s, `SOPORTE VITAL: sin ${low.map((k) => VITALS[k]).join(' ni ')}. Resuelve los problemas o la base se deteriora.`, 'bad'); } else if (!low.length) s.vitalWarn = false; }
   ps.forEach((p, k) => { if (p.salud < h0[k]) p.salud = h0[k] - (h0[k] - p.salud) * dif(s).dmg; });
   if (s.integ < i0) s.integ = i0 - (i0 - s.integ) * dif(s).dmg;
   const pend = () => (s.pending ? s.p : null);
@@ -336,6 +342,7 @@ function newDay(s) {
   s.min -= 1440; s.day++;
   if (s.day > DAYS) { end(s, false, `${s.L.ai} ganó`, `Pasaron los ${DAYS} días. ${s.L.ai} tomó el control total y nadie volvió a casa.`); return; }
   if ((s.day === 4 || s.day === 7) && s.drones.length < 5) { addDrone(s, s.drones.length); say(s, `${s.L.ai} activó un tercer ${s.L.watcher} de vigilancia.`, 'ia'); }
+  if (s.vital) { const ok = Object.values(s.vital).every((v) => v > 25); trainRecord(s, 'vital', ok, ok ? null : 'Un recurso vital terminó el día bajo 25 %'); }
   refill(s); planEvents(s); newWants(s);
   say(s, `— Día ${s.day} de ${DAYS} —`, 'day'); V.startDay(s);
 }
@@ -730,6 +737,7 @@ function start(s, kind, need, o) { s.action = { kind, need, t: 0, o }; }
 
 function finishAction(s, a) {
   const p = s.p; const o = a.o;
+  if (a.kind === 'prerespira') { p.evaDay = s.day; trainRecord(s, 'eva', true); return flash(s, 'Pre-respiración lista: ya puedes salir sin riesgo.', 'ok'); }
   if (a.kind === 'cajon') {
     if (rand(s) < 0.3 && findNote(s)) return;
     if (!o.loot.length) return say(s, 'Cajón vacío. Se vuelve a llenar cada mañana.', 'info');
@@ -768,6 +776,23 @@ export function betray(s) {
   c.say = pick(s, ['¿Por qué...?', 'Confié en ti.', 'Esto no se olvida.']); c.sayFor = 5;
   flash(s, `Delataste a ${c.name}. ${s.L.ai} te premió (−35 alerta y ${itemName(s, prize)}). ${c.name} ya no te ayudará… y le contará a la IA lo que te vea hacer.`, 'bad');
 }
+// ---------- EVA: chequeo del traje + pre-respiración ----------
+/** Al intentar salir con el traje: primero el chequeo (minijuego), después quedarse quieto pre-respirando. */
+function evaGate(s, p, k, ox, oy) {
+  if (p.evaDay === s.day) return;
+  if (p.evaCheck !== s.day) { p.x = ox; p.y = oy; s.pending = { kind: 'eva', by: k }; return; }
+  // salió sin terminar la pre-respiración: mal de descompresión
+  p.evaDay = s.day; p.salud -= 20; p.hit = 0.4; trainRecord(s, 'eva', false, 'Salir sin terminar la pre-respiración');
+  flash(s, 'Saliste sin pre-respirar: mal de descompresión (−20 salud). Antes de salir, quédate quieto en la esclusa.', 'bad');
+}
+/** Resultado del chequeo del traje. */
+export function resolveEva(s, ok) {
+  const pd = s.pending; if (pd?.kind !== 'eva') return; s.pending = null;
+  if (!ok) { trainRecord(s, 'eva', false, 'Chequeo del traje en desorden'); return flash(s, 'Chequeo del traje mal hecho. Repítelo antes de salir.', 'bad'); }
+  s.p.evaCheck = s.day; s.action = { kind: 'prerespira', need: PREBREATHE, t: 0 };
+  flash(s, `Traje OK. Pre-respira oxígeno puro ${PREBREATHE} s sin moverte.`, 'info');
+}
+
 /** Resultado del minijuego de hackeo (memoria de código). */
 export function resolveCodigo(s, ok) {
   const pd = s.pending; s.pending = null; if (!pd) return;
@@ -809,6 +834,7 @@ export function resolveProtocol(s, ok) {
     else raise(s, 30, 'Intento de apagado detectado.');
     return;
   }
+  if (pd.kind === 'protocolo') trainRecord(s, 'proc', ok, ok ? null : 'Pasos del procedimiento fuera de orden o sin terminar');
   if (pd.kind === 'protocolo' && pd.id === s.L.finalProto) {
     if (ok) { s.final.lever = true; flash(s, `¡LISTO! Corre a: ${s.L.labels.asiento}.`, 'ok'); } else { s.final.t -= 12; flash(s, 'Te equivocaste de paso. Perdiste 12 s.', 'bad'); }
     return;
@@ -820,7 +846,7 @@ export function resolveProtocol(s, ok) {
     else { h.stun = 0; flash(s, '¡Cable equivocado! El robot despertó.', 'bad'); }
     return;
   }
-  if (ok) { s.hazards.splice(s.hazards.indexOf(h), 1); s.stats.solved++; flash(s, `Bien hecho: ${def.name.toLowerCase()} resuelto.`, 'ok'); if (def.tool !== 'mascara') take(s, def.tool); }
+  if (ok) { s.hazards.splice(s.hazards.indexOf(h), 1); s.stats.solved++; restoreVital(s, h.kind); flash(s, `Bien hecho: ${def.name.toLowerCase()} resuelto.`, 'ok'); if (def.tool !== 'mascara') take(s, def.tool); }
   else if (def.type === 'spread') { h.tiles = h.tiles.slice(0, Math.ceil(h.tiles.length / 2)); take(s, def.tool); flash(s, 'Te salió a medias: gastaste la herramienta y solo resolviste la mitad.', 'bad'); }
   else if (def.type === 'pull') { h.tres -= 40; flash(s, 'El parche no agarró bien. Perdiste 40 s.', 'bad'); }
   else { s.p.salud -= 15; flash(s, 'Te salió mal (−15 salud). Inténtalo otra vez.', 'bad'); }

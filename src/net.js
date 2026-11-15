@@ -6,7 +6,7 @@ const ABC = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
 export const SNAP_HZ = 12;
 
 /** Lo que el invitado puede pedir que haga el anfitrión (siempre sobre el jugador 2). */
-export const OPS = new Set(['interact', 'useQ', 'toggleHide', 'throwItem', 'dropItem', 'betray', 'craft', 'stashPut', 'stashTake', 'resolveProtocol', 'resolveCodigo', 'resolveBreath', 'clearPending']);
+export const OPS = new Set(['interact', 'useQ', 'toggleHide', 'throwItem', 'dropItem', 'betray', 'craft', 'stashPut', 'stashTake', 'resolveProtocol', 'resolveCodigo', 'resolveBreath', 'resolveEva', 'trainRecord', 'clearPending']);
 
 export const newCode = (rnd = Math.random) => Array.from({ length: 5 }, () => ABC[Math.floor(rnd() * ABC.length)]).join('');
 export const cleanCode = (c) => String(c ?? '').toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 5);
@@ -38,10 +38,11 @@ export function applyOp(G, s, k, a = []) {
   if (!OPS.has(k) || !s?.ps || s.over) return;
   const sv = s.p; const p2 = s.ps[1];
   if (k === 'clearPending') { if (s.pending?.by === 1 && s.pending.kind === 'escondite') s.pending = null; return; }
+  if (k === 'trainRecord') return G.trainRecord(s, String(a[0]), !!a[1], a[2] ? String(a[2]) : null);
   if (k.startsWith('resolve')) { if (s.pending?.by !== 1) return; s.p = p2; G[k](s, !!a[0]); s.p = s.escort ? s.escort.p : sv; return; }
   if (s.pending || p2.down) return;
   s.p = p2; const had = !!s.pending;
-  G[k](s, ...a.map((x) => (typeof x === 'number' || typeof x === 'string' ? x : undefined)));
+  G[k](s, ...a.map((x) => (['number', 'string', 'boolean'].includes(typeof x) ? x : undefined)));
   if (!had && s.pending) s.pending.by = 1;
   s.p = s.escort ? s.escort.p : sv;
 }

@@ -5,6 +5,7 @@ import { NOTES } from './story.js';
 import { LOCS } from './locs.js';
 import * as G0 from './core.js';
 import * as Net from './net.js';
+import * as T from './trainer.js';
 // En línea: NET = conexión ({role:'host'|'guest'}). En el invitado, las acciones del núcleo se mandan al anfitrión.
 let NET = null; let netIn = { dx: 0, dy: 0, crouch: false }; let netDirty = false; let netSfx = []; let snapT = 0; let inT = 0; let lastIn = ''; let pendOpen = false; let gOver = false;
 const isGuest = () => NET?.role === 'guest';
@@ -564,6 +565,7 @@ function hud() {
   $('t-alerta').textContent = `${L.ai} · ALERTA`;
   $('m-alerta').style.width = `${s.iaOn ? s.alert : 0}%`; $('m-alerta').parentElement.classList.toggle('alta', s.alert > 70);
   $('m-integ').style.width = `${Math.max(0, s.integ)}%`;
+  const vt = $('vitales'); if (vt) { vt.hidden = !!s.cadet; if (!s.cadet && s.vital) vt.innerHTML = '<h3>SOPORTE VITAL</h3>' + Object.entries(T.VITALS).map(([k, n]) => { const v = Math.round(s.vital[k] ?? 100); return `<span class="vt ${v < 25 ? 'bajo' : ''}" title="${n} ${v} %"><small>${n} ${v}</small><b><i style="width:${v}%"></i></b></span>`; }).join(''); }
   const rows = [['❤', 'SALUD', 'salud', 25], ['⚡', 'ENERGÍA', 'energia', 25], ['💪', 'FUERZA', 'fuerza', -1], ['🧠', 'CONOCIM.', 'conoc', -1]];
   if (L.rooms.some((r) => r.outside)) rows.push(['O₂', 'OXÍGENO', 'o2', 35]);
   const pls = s.ps ?? [p];
@@ -720,7 +722,7 @@ function guestMsg(m) {
 }
 function openPending() {
   const pd = s.pending?.kind;
-  if (pd === 'escondite') stashMenu(); else if (pd === 'protocolo') protocolGame(s.pending.id); else if (pd === 'codigo') codeGame(); else if (pd === 'cables') cablesGame(); else if (pd === 'respira') breathGame();
+  if (pd === 'escondite') stashMenu(); else if (pd === 'protocolo') protocolGame(s.pending.id); else if (pd === 'codigo') codeGame(); else if (pd === 'cables') cablesGame(); else if (pd === 'respira') breathGame(); else if (pd === 'eva') evaGame();
 }
 
 function medalsScreen() {
@@ -764,6 +766,7 @@ function help(back) {
     <p><b>Cajones</b> con luz amarilla tienen piezas (se llenan cada mañana). Guarda herramientas en tu <b>escondite</b>: en el pase de lista te revisan si llevas 2 o más.</p>
     <p><b>Vigilancia:</b> el cono amarillo es lo que ve; rojo = te persigue. Los <b>conductos</b> (rejillas) los esquivan: necesitas un destornillador.</p>
     <p><b>Afuera</b> (Luna y Marte) solo se sobrevive con el traje: mira el oxígeno.</p>
+    <p><b>Entrenamiento NASA:</b> antes de cada protocolo lees el <b>panel de alarmas</b> y llamas por <b>radio</b> a Control de Misión (1 clic cada uno, el reloj sigue). Para salir con el traje: <b>chequeo</b> y quedarte <b>quieto ${T.PREBREATHE} s</b> pre-respirando. Cuida el <b>soporte vital</b> (O₂, agua, energía): los problemas lo gastan. Al final recibes un informe.</p>
     <p><b>Emergencias:</b> los drones se distraen yendo al problema. Es tu momento.</p>
     <div class="fila"><button id="volver">VOLVER</button></div>`);
   $('volver').onclick = () => (back ? back() : close());
@@ -830,15 +833,57 @@ function breathGame() {
   function done(ok) { clearInterval(tick); beep(ok ? 660 : 90, 0.4, ok ? 'triangle' : 'sawtooth', 0.06); if (s.ps && !isGuest()) s.p = s.ps[s.pending?.by ?? 0]; G.resolveBreath(s, ok); close(); }
 }
 
-// Minijuego 1: protocolo NASA, tocar los pasos en orden.
+// Minijuego 1: protocolo NASA. Si es un problema: 1) leer el panel de alarmas, 2) llamar a Control, 3) los pasos en orden.
+// Todo con el mismo reloj (cada etapa extra suma 4 s), así el entrenamiento no frena el juego.
 function protocolGame(id) {
   menu = 'protocolo';
   const pr = PROTOCOLS[id]; const order = pr.steps; const shuffled = order.map((x, i) => [x, i]).sort(() => Math.random() - 0.5);
-  let next = 0; let time = 16; const total = 16;
-  open(`<h2>${pr.title}</h2><p>Toca los pasos <b>en orden</b>. Error = −2 s.</p><div class="tiempo"><i id="pt"></i></div>
-    <div class="pasos" id="pasos">${shuffled.map(([x, i]) => `<button data-i="${i}">${x}</button>`).join('')}</div>`);
+  const h = s.pending?.h; const aq = h ? T.alarmQuiz(h.kind) : null;
+  const room = h?.room ? G.roomName(s, h.room) : G.roomName(s, G.roomIdAt(s, s.p.x, s.p.y));
+  const rq = h ? T.radioQuiz(s.L, (T.SENSORS[h.kind]?.name ?? h.def.name).toLowerCase(), room) : null;
+  let stage = aq ? 'alarma' : rq ? 'radio' : 'pasos';
+  let next = 0; const total = 16 + (aq ? 4 : 0) + (rq ? 4 : 0); let time = total;
   const tick = setInterval(() => { time -= 0.1; const el = $('pt'); if (el) el.style.width = `${Math.max(0, time / total * 100)}%`; if (time <= 0) done(false); }, 100);
-  function done(ok) { clearInterval(tick); beep(ok ? 990 : 140, 0.25, ok ? 'square' : 'sawtooth'); G.resolveProtocol(s, ok); close(); }
+  let fin = false;
+  function done(ok) { if (fin) return; fin = true; clearInterval(tick); beep(ok ? 990 : 140, 0.25, ok ? 'square' : 'sawtooth'); G.resolveProtocol(s, ok); close(); }
+  const head = (sub) => `<h2>${pr.title}</h2><p>${sub}</p><div class="tiempo"><i id="pt" style="width:${Math.max(0, time / total * 100)}%"></i></div>`;
+  const quiz = (area, opts, answer, why, after) => $('ventana').querySelectorAll('[data-q]').forEach((b) => (b.onclick = () => {
+    const pick = opts[+b.dataset.q]; const ok = pick === answer;
+    G.trainRecord(s, area, ok, ok ? null : why(pick));
+    if (ok) beep(880, 0.08); else { time -= 3; beep(160, 0.12, 'sawtooth'); shake(); }
+    stage = after; render();
+  }));
+  function render() {
+    if (fin) return;
+    if (stage === 'alarma') {
+      open(`${head('1/3 · <b>PANEL DE ALARMAS</b>: lee los sensores. ¿Qué emergencia es?')}
+        <div class="panel-alarma ${aq.lvl}"><b>${aq.lvl === 'rojo' ? '⚠ PELIGRO' : '⚠ PRECAUCIÓN'}</b><span>${aq.read}</span></div>
+        <div class="pasos">${aq.options.map((o, i) => `<button data-q="${i}">${o}</button>`).join('')}</div>`);
+      quiz('alarma', aq.options, aq.answer, () => `Confundir la alarma de ${aq.answer.toLowerCase()} (leer los sensores)`, rq ? 'radio' : 'pasos');
+    } else if (stage === 'radio') {
+      open(`${head(`${aq ? '2/3' : '1/2'} · <b>📻 RADIO</b>: avisa a Control de Misión con un mensaje completo (quién, qué, dónde, qué harás).${rq.mars ? ' <em>En Marte la señal tarda de 4 a 24 min.</em>' : ''}`)}
+        <div class="pasos radio">${rq.options.map((o, i) => `<button data-q="${i}">${o}</button>`).join('')}</div>`);
+      quiz('radio', rq.options, rq.answer, (p) => rq.why[p], 'pasos');
+    } else {
+      open(`${head(`${h ? (aq ? '3/3 · ' : '2/2 · ') : ''}Toca los pasos <b>en orden</b>. Error = −2 s.`)}
+        <div class="pasos" id="pasos">${shuffled.map(([x, i]) => `<button data-i="${i}">${x}</button>`).join('')}</div>`);
+      $('pasos').querySelectorAll('button').forEach((b) => (b.onclick = () => {
+        if (+b.dataset.i === next) { b.classList.add('hecho'); b.disabled = true; b.textContent = `${next + 1}. ${b.textContent}`; next++; beep(520 + next * 60, 0.06); if (next === order.length) done(true); }
+        else { time -= 2; beep(160, 0.12, 'sawtooth'); shake(); }
+      }));
+    }
+  }
+  render();
+}
+// Minijuego EVA: chequeo del traje en orden antes de salir. Después, pre-respirar quieto en el mapa.
+function evaGame() {
+  menu = 'eva';
+  const order = T.EVA_STEPS; const shuffled = order.map((x, i) => [x, i]).sort(() => Math.random() - 0.5);
+  let next = 0; let time = 12; const total = 12; let fin = false;
+  open(`<h2>🧑‍🚀 CHEQUEO DEL TRAJE · antes de la EVA</h2><p>Revisa el traje <b>en orden</b>. Después tendrás que <b>pre-respirar ${T.PREBREATHE} s quieto</b> (evita el mal de descompresión). Error = −2 s.</p><div class="tiempo"><i id="et"></i></div>
+    <div class="pasos" id="pasos">${shuffled.map(([x, i]) => `<button data-i="${i}">${x}</button>`).join('')}</div>`);
+  const tick = setInterval(() => { time -= 0.1; const el = $('et'); if (el) el.style.width = `${Math.max(0, time / total * 100)}%`; if (time <= 0) done(false); }, 100);
+  function done(ok) { if (fin) return; fin = true; clearInterval(tick); beep(ok ? 990 : 140, 0.25, ok ? 'square' : 'sawtooth'); if (s.ps && !isGuest()) s.p = s.ps[s.pending?.by ?? 0]; G.resolveEva(s, ok); close(); }
   $('pasos').querySelectorAll('button').forEach((b) => (b.onclick = () => {
     if (+b.dataset.i === next) { b.classList.add('hecho'); b.disabled = true; b.textContent = `${next + 1}. ${b.textContent}`; next++; beep(520 + next * 60, 0.06); if (next === order.length) done(true); }
     else { time -= 2; beep(160, 0.12, 'sawtooth'); shake(); }
@@ -886,6 +931,13 @@ function nextUnlock(total) {
   const n = all.filter(([k, , c]) => c && !mt.unlocked.includes(k)).sort((a, b) => a[2] - b[2])[0];
   return n ? `${n[1]} (${n[2]} pts, te faltan ${Math.max(0, n[2] - total)})` : 'ya tienes todo';
 }
+function trainReport() {
+  const rp = T.report(s); if (!rp.areas.length) return '';
+  return `<div class="informe"><h3>📋 INFORME DE ENTRENAMIENTO · estilo NASA</h3>
+    ${rp.areas.map((a) => `<div class="inf-fila"><span>${a.name}</span><b><i style="width:${a.pct}%" class="${a.pct >= 80 ? 'ok' : a.pct < 60 ? 'mal' : ''}"></i></b><small>${a.ok}/${a.n}</small></div>`).join('')}
+    ${rp.good.length ? `<p>✔ <b>Bien:</b> ${rp.good.join(', ')}.</p>` : ''}${rp.improve.length ? `<p>▲ <b>Para mejorar:</b> ${rp.improve.join(', ')}.</p>` : ''}
+    ${rp.cause ? `<p>🔎 <b>Error más repetido:</b> ${rp.cause.text} (${rp.cause.n}×).</p>` : ''}</div>`;
+}
 function endScreen() {
   menu = 'fin'; if (!isGuest()) clearSave(s.loc);
   const o = s.over; if (o.won && !s.daily) setBest(s.loc, o.stars);
@@ -896,6 +948,7 @@ function endScreen() {
     <p style="font-size:1.4rem;color:var(--amber)">${o.title}</p><p>${o.text}</p>
     <p style="color:var(--dim)">Problemas resueltos: ${s.stats.solved} · favores: ${s.stats.favors} · veces atrapado: ${s.stats.caught} · alerta final: ${Math.round(s.alert)} · integridad: ${Math.max(0, Math.round(s.integ))}</p>
     <div class="premio">+${r.pts} PUNTOS (total ${r.total})${r.streak > 1 ? ` · 🔥 RACHA ${r.streak}` : ''}${r.newNotes ? ` · 📄 ${r.newNotes} nota(s) nueva(s)` : ''}</div>
+    ${trainReport()}
     ${r.medals.map((id) => `<div class="medalla si nueva"><b>🏅 ${Meta.MEDALS[id][0]}</b><small>${Meta.MEDALS[id][1]}</small></div>`).join('')}
     ${dr ? `<p>${dr.isNew ? '¡NUEVO RÉCORD DEL DÍA!' : dr.best ? `Tu récord de hoy: ${Meta.fmtTime(dr.best)}` : ''}</p>` : ''}
     ${!o.won ? `<p style="color:var(--dim)">Siguiente desbloqueo: ${nextUnlock(r.total)}</p>` : ''}
@@ -932,7 +985,7 @@ addEventListener('keydown', (e) => {
   if (e.repeat) return;
   keys.add(k); codes.add(e.code);
   if (s?.ps && !NET && P2KEYS[e.code]) { e.preventDefault(); return act(P2KEYS[e.code], 1); }
-  if (k === 'escape' && menu && !['titulo', 'fin', 'protocolo', 'intro', 'codigo', 'cables', 'respira', 'academia', 'cadete'].includes(menu)) { if (menu === 'escondite') { if (isGuest()) G.clearPending(s); s.pending = null; } close(); return; }
+  if (k === 'escape' && menu && !['titulo', 'fin', 'protocolo', 'intro', 'codigo', 'cables', 'respira', 'eva', 'academia', 'cadete'].includes(menu)) { if (menu === 'escondite') { if (isGuest()) G.clearPending(s); s.pending = null; } close(); return; }
   if (['e', 'q', 'c', 'p', 'f', 't', 'g', 'b', 'i', 'm', 'escape'].includes(k)) act(k, isGuest() ? 1 : 0);
 });
 addEventListener('keyup', (e) => { keys.delete(e.key.toLowerCase()); codes.delete(e.code); });
@@ -983,6 +1036,7 @@ function frame(t) {
     }
     if (s.cadet && !menu) Acad.frame(s, dt);
     if (!menu && !isGuest() && s.pending?.kind === 'respira' && mine(s.pending)) breathGame();
+    if (!menu && !isGuest() && s.pending?.kind === 'eva' && mine(s.pending)) evaGame();
     while (s.sfx?.length) { const k = s.sfx.shift(); M.sting(k); if (NET?.role === 'host') netSfx.push(k); }
     if (NET?.role === 'host' && NET.open && (snapT -= dt) <= 0) { snapT = 1 / Net.SNAP_HZ; NET.send({ t: 's', d: Net.pack(G0, s, netSfx.splice(0)) }); }
     M.duck(document.hidden || !document.hasFocus());
@@ -1004,4 +1058,4 @@ Acad.init({ open, close, setMenu: (v) => { menu = v; }, getS: () => s, setS: (x)
   toast: (txt) => { if (s) G.flash(s, txt, 'info'); }, pause: () => { if (!menu) act('p'); } });
 if ('serviceWorker' in navigator && location.protocol.startsWith('http')) navigator.serviceWorker.register('sw.js').catch(() => {});
 document.fonts?.load('16px VT323').finally(() => { titleScreen(); requestAnimationFrame(frame); });
-window.lfr = { get s() { return s; }, get menu() { return menu; }, get net() { return NET; }, G, draw, hud, dock }; // para depurar y para los bots de prueba
+window.lfr = { get s() { return s; }, get menu() { return menu; }, get net() { return NET; }, G, draw, hud, dock, openPending, endScreen }; // para depurar y para los bots de prueba
